@@ -32,6 +32,7 @@ export interface Team {
   store_latitude: number | null;
   store_longitude: number | null;
   store_radius: number | null; // metre
+  organization_id?: string | null;
   created_at?: string;
 }
 
@@ -44,6 +45,15 @@ export interface TeamMember {
   user?: UserProfile;
 }
 
+export interface ShiftTemplate {
+  id: string;
+  team_id: string;
+  name: string;
+  start_time: string;
+  end_time: string;
+  created_at?: string;
+}
+
 export interface Shift {
   id: string;
   team_id: string;
@@ -51,6 +61,7 @@ export interface Shift {
   start_time: string;
   end_time: string;
   role: string;
+  shift_template_id?: string | null;
   user?: UserProfile;
 }
 
@@ -72,6 +83,13 @@ export interface Training {
   video_url: string | null;
   image_url: string | null;
   created_at: string;
+  category?: string | null;
+  course_level?: string | null;
+  duration_minutes?: number;
+  points?: number;
+  required_points?: number;
+  content?: string | null;
+  type?: 'video' | 'article';
 }
 
 export interface TrainingProgress {

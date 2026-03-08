@@ -6,3 +6,6 @@ export { ProgressBar } from './ProgressBar';
 export { LeaderboardItem } from './LeaderboardItem';
 export { ShiftBlock } from './ShiftBlock';
 export { TrainingCard } from './TrainingCard';
+export { TabBar } from './TabBar';
+export { SplashScreen } from './SplashScreen';
+export { ClockTimePicker } from './ClockTimePicker';

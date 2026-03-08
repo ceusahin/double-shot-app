@@ -7,7 +7,7 @@ import {
   ViewStyle,
   TextStyle,
 } from 'react-native';
-import { colors, borderRadius, spacing, typography } from '../utils/theme';
+import { colors, borderRadius, spacing, typography, fonts } from '../utils/theme';
 
 type Variant = 'primary' | 'secondary' | 'outline' | 'ghost';
 
@@ -49,7 +49,7 @@ export function Button({
     >
       {loading ? (
         <ActivityIndicator
-          color={variant === 'primary' || variant === 'secondary' ? colors.white : colors.primary}
+          color={variant === 'primary' ? colors.black : colors.accent}
         />
       ) : (
         <Text
@@ -69,7 +69,7 @@ export function Button({
 const styles = StyleSheet.create({
   base: {
     minHeight: 52,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.full,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: spacing.lg,
@@ -78,15 +78,18 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   primary: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.accent,
+    borderRadius: borderRadius.full,
   },
   secondary: {
-    backgroundColor: colors.secondary,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   outline: {
     backgroundColor: 'transparent',
     borderWidth: 2,
-    borderColor: colors.primary,
+    borderColor: colors.accent,
   },
   ghost: {
     backgroundColor: 'transparent',
@@ -99,10 +102,10 @@ const styles = StyleSheet.create({
   },
   text: {
     ...typography.body,
-    fontWeight: '600',
+    fontFamily: fonts.semibold,
   },
-  text_primary: { color: colors.white },
-  text_secondary: { color: colors.white },
-  text_outline: { color: colors.primary },
-  text_ghost: { color: colors.primary },
+  text_primary: { color: colors.black },
+  text_secondary: { color: colors.textPrimary },
+  text_outline: { color: colors.accent },
+  text_ghost: { color: colors.accent },
 });

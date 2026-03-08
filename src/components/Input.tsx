@@ -7,7 +7,7 @@ import {
   TextInputProps,
   ViewStyle,
 } from 'react-native';
-import { colors, borderRadius, spacing, typography } from '../utils/theme';
+import { colors, borderRadius, spacing, typography, fonts } from '../utils/theme';
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -44,18 +44,18 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   label: {
-    ...typography.caption,
-    color: colors.text,
-    marginBottom: spacing.xs,
-    fontWeight: '500',
+    ...typography.small,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+    fontFamily: fonts.medium,
   },
   input: {
     ...typography.body,
-    color: colors.text,
-    backgroundColor: colors.white,
+    color: colors.textPrimary,
+    backgroundColor: 'rgba(0,0,0,0.2)',
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: borderRadius.md,
+    borderRadius: borderRadius.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm + 4,
     minHeight: 48,

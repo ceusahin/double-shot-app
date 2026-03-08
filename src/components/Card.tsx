@@ -39,8 +39,10 @@ export function Card({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.cardBg,
+    backgroundColor: colors.glassBg,
     borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
     overflow: 'hidden',
   },
   padded: {
