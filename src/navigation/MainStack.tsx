@@ -17,6 +17,8 @@ export function MainStack() {
   return (
     <Stack.Navigator
       screenOptions={{
+        animation: 'slide_from_bottom',
+        contentStyle: { backgroundColor: colors.bgDark },
         headerStyle: { backgroundColor: colors.bgDark },
         headerTitleStyle: { ...typography.subtitle, color: colors.textPrimary },
         headerTintColor: colors.textPrimary,

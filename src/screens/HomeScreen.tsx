@@ -5,7 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { Card, TrainingCard } from '../components';
 import { useAuthStore } from '../store/authStore';
 import { getLatestTip } from '../services/tips';
-import { colors, spacing, typography } from '../utils/theme';
+import { getMyTeams } from '../services/teams';
+import { getMyRolesSummary } from '../services/rbac';
+import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
 
 export function HomeScreen() {
   const user = useAuthStore((s) => s.user);
@@ -15,6 +17,19 @@ export function HomeScreen() {
     queryKey: ['tip'],
     queryFn: getLatestTip,
   });
+  const { data: teams = [] } = useQuery({
+    queryKey: ['my-teams', user?.id],
+    queryFn: () => getMyTeams(user!.id),
+    enabled: !!user?.id,
+  });
+  const { data: roleSummaries = [] } = useQuery({
+    queryKey: ['my-roles', user?.id],
+    queryFn: () => getMyRolesSummary(user!.id),
+    enabled: !!user?.id,
+  });
+
+  const isOwnerOnly = teams.length === 0 || teams.every((t) => t.owner_id === user?.id);
+  const currentRole = roleSummaries[0];
 
   const goToRecipes = () => navigation.navigate('Recipes');
   const goToTraining = () => navigation.navigate('Training');
@@ -30,10 +45,23 @@ export function HomeScreen() {
         Hoş Geldin, <Text style={styles.greetingAccent}>{user?.name ?? 'Barista'}</Text>
       </Text>
 
-      <Card style={styles.levelCard} padded>
-        <Text style={styles.levelLabel}>Güncel Seviyeniz</Text>
-        <Text style={styles.levelValue}>{user?.level ?? 'Beginner'}</Text>
-      </Card>
+      {!isOwnerOnly && (
+        <View style={styles.roleBlock}>
+          <Text style={styles.roleBlockCaption}>Güncel rol</Text>
+          {currentRole ? (
+            <View style={styles.roleRow}>
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleName}>{currentRole.roleName}</Text>
+              </View>
+              <View style={styles.levelPill}>
+                <Text style={styles.levelPillText}>{currentRole.roleLevelName}</Text>
+              </View>
+            </View>
+          ) : (
+            <Text style={styles.roleEmpty}>Henüz rol atanmadı</Text>
+          )}
+        </View>
+      )}
 
       <Text style={styles.sectionTitle}>Hızlı Erişim</Text>
       <View style={styles.quickGrid}>
@@ -93,29 +121,61 @@ const styles = StyleSheet.create({
   greetingLabel: {
     ...typography.caption,
     color: colors.textSecondary,
-    marginBottom: spacing.xs,
+    marginBottom: spacing.md,
   },
   greetingText: {
     ...typography.title,
     color: colors.textPrimary,
   },
   greetingAccent: { color: colors.accent },
-  levelCard: {
+  roleBlock: {
     marginBottom: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
     borderWidth: 1,
-    borderColor: 'rgba(212, 175, 55, 0.3)',
+    borderColor: colors.border,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.accent,
   },
-  levelLabel: {
+  roleBlockCaption: {
     ...typography.small,
+    fontFamily: fonts.medium,
     color: colors.textSecondary,
-    marginBottom: spacing.sm,
     textTransform: 'uppercase',
-    letterSpacing: 1,
+    letterSpacing: 1.2,
+    marginBottom: spacing.sm,
   },
-  levelValue: {
-    fontSize: 24,
+  roleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  roleBadge: {
+    paddingVertical: spacing.xs,
+    paddingHorizontal: 0,
+  },
+  roleName: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+  },
+  levelPill: {
+    backgroundColor: 'rgba(212, 175, 55, 0.18)',
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.full,
+  },
+  levelPillText: {
+    ...typography.small,
+    fontFamily: fonts.semibold,
     color: colors.accent,
-    textAlign: 'center',
+  },
+  roleEmpty: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
   },
   card: {
     marginBottom: spacing.lg,

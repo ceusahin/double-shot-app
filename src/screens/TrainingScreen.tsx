@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal } from 'react-native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Button } from '../components';
 import { useAuthStore } from '../store/authStore';
@@ -8,13 +9,12 @@ import {
   getTrainingProgress,
   getQuizzesForTraining,
   upsertTrainingProgress,
-  insertQuizAttempt,
   type TrainingWithProgress,
   type QuizQuestionForUI,
 } from '../services/training';
 import { updateProfileXP } from '../services/auth';
 import { getProfile } from '../services/auth';
-import { colors, spacing, typography, borderRadius } from '../utils/theme';
+import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
 
 const LEVEL_TO_GRADE: Record<string, string> = {
   Beginner: 'A1',
@@ -23,6 +23,15 @@ const LEVEL_TO_GRADE: Record<string, string> = {
   'Senior Barista': 'B2',
   'Head Barista': 'C1',
 };
+
+/** Tüm seviyeler ve açıklamaları – bilgi (i) butonu için */
+const LEVELS_INFO = [
+  { level: 'Beginner', grade: 'A1', desc: 'Tadımlık (Çaylak). Kahve dünyasına ilk adım. Temel kavramları öğrenirsin.' },
+  { level: 'Junior Barista', grade: 'A2', desc: 'Başlangıç. Espresso, süt ve filtre kahve temelleriyle tanışırsın.' },
+  { level: 'Barista', grade: 'B1', desc: 'Orta seviye. Demleme süreleri, latte art ve menü çeşitlerine hakim olursun.' },
+  { level: 'Senior Barista', grade: 'B2', desc: 'İleri. Arıza tespiti, kalite kontrolü ve ekip içi rehberlik becerileri.' },
+  { level: 'Head Barista', grade: 'C1', desc: 'Usta. Eğitim tasarımı, menü optimizasyonu ve alan uzmanlığı.' },
+];
 
 const CATEGORIES = [
   { id: 'all', label: 'Tümü' },
@@ -42,6 +51,7 @@ export function TrainingScreen() {
   const [quizStep, setQuizStep] = useState(1);
   const [quizScore, setQuizScore] = useState(0);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestionForUI[]>([]);
+  const [showLevelInfoModal, setShowLevelInfoModal] = useState(false);
 
   const userId = user?.id ?? '';
   const grade = LEVEL_TO_GRADE[user?.level ?? 'Beginner'] ?? 'A1';
@@ -168,18 +178,56 @@ export function TrainingScreen() {
       <Text style={styles.title}>Eğitim <Text style={styles.titleAccent}>Akademisi</Text></Text>
       <Text style={styles.subtitle}>Uzmanlık yolculuğunuza devam edin.</Text>
 
-      <Card style={styles.progressCard}>
-        <View style={styles.progressRow}>
-          <View>
-            <Text style={styles.progressLabel}>MEVCUT SEVİYE</Text>
-            <Text style={styles.progressLevel}>{user?.level ?? 'Beginner'} <Text style={styles.gradeText}>({grade})</Text></Text>
+      <View style={styles.levelBlock}>
+        <View style={styles.levelBlockTop}>
+          <Text style={styles.levelBlockCaption}>Mevcut seviye</Text>
+          <Pressable
+            onPress={() => setShowLevelInfoModal(true)}
+            hitSlop={12}
+            style={styles.levelInfoBtn}
+          >
+            <Ionicons name="information-circle-outline" size={22} color={colors.textSecondary} />
+          </Pressable>
+        </View>
+        <View style={styles.levelBlockRow}>
+          <View style={styles.levelBlockLeft}>
+            <Text style={styles.levelBlockName}>{(user?.level ?? 'Beginner').toUpperCase()}</Text>
+            <View style={styles.levelGradePill}>
+              <Text style={styles.levelGradeText}>{grade}</Text>
+            </View>
           </View>
-          <View style={styles.pointsBlock}>
-            <Text style={styles.pointsValue}>{points}</Text>
-            <Text style={styles.pointsLabel}>Eğitim Puanı</Text>
+          <View style={styles.levelPointsWrap}>
+            <Text style={styles.levelPointsValue}>{points}</Text>
+            <Text style={styles.levelPointsLabel}>Eğitim puanı</Text>
           </View>
         </View>
-      </Card>
+      </View>
+
+      <Modal visible={showLevelInfoModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalHeaderTitle}>Seviyeler</Text>
+              <Pressable onPress={() => setShowLevelInfoModal(false)} style={styles.modalClose}>
+                <Text style={styles.modalCloseText}>✕ Kapat</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
+              {LEVELS_INFO.map((item, idx) => (
+                <View key={item.level} style={styles.levelInfoRow}>
+                  <View style={styles.levelInfoGradeBadge}>
+                    <Text style={styles.levelInfoGradeText}>{item.grade}</Text>
+                  </View>
+                  <View style={styles.levelInfoTextWrap}>
+                    <Text style={styles.levelInfoName}>{item.level}</Text>
+                    <Text style={styles.levelInfoDesc}>{item.desc}</Text>
+                  </View>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <View style={styles.tabRow}>
         <Pressable
@@ -297,14 +345,102 @@ const styles = StyleSheet.create({
   title: { ...typography.title, marginBottom: 4, color: colors.textPrimary },
   titleAccent: { color: colors.accent },
   subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.lg },
-  progressCard: { marginBottom: spacing.lg },
-  progressRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  progressLabel: { fontSize: 11, color: colors.accent, fontWeight: '700', letterSpacing: 1 },
-  progressLevel: { fontSize: 18, color: colors.textPrimary, marginTop: 4 },
-  gradeText: { fontSize: 12, color: colors.textSecondary },
-  pointsBlock: { alignItems: 'flex-end' },
-  pointsValue: { fontSize: 24, fontWeight: '700', color: colors.textPrimary },
-  pointsLabel: { fontSize: 10, color: colors.textSecondary },
+  levelBlock: {
+    marginBottom: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.accent,
+  },
+  levelBlockTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  levelBlockCaption: {
+    ...typography.small,
+    fontFamily: fonts.semibold,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+  },
+  levelInfoBtn: { padding: spacing.xs },
+  levelBlockRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  levelBlockLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  levelBlockName: {
+    ...typography.subtitle,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    textTransform: 'uppercase',
+    letterSpacing: 1.2,
+  },
+  levelGradePill: {
+    backgroundColor: 'rgba(212, 175, 55, 0.22)',
+    paddingVertical: 5,
+    paddingHorizontal: spacing.sm + 2,
+    borderRadius: borderRadius.full,
+  },
+  levelGradeText: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    letterSpacing: 0.5,
+  },
+  levelPointsWrap: { alignItems: 'flex-end' },
+  levelPointsValue: {
+    ...typography.title,
+    fontSize: 26,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+  },
+  levelPointsLabel: {
+    ...typography.small,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+    marginTop: 2,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
+  levelInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  levelInfoGradeBadge: {
+    width: 36,
+    height: 36,
+    borderRadius: borderRadius.sm,
+    backgroundColor: 'rgba(212, 175, 55, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  levelInfoGradeText: {
+    ...typography.small,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+  },
+  levelInfoTextWrap: { flex: 1 },
+  levelInfoName: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+    marginBottom: 2,
+  },
+  levelInfoDesc: {
+    ...typography.caption,
+    fontSize: 14,
+    color: colors.textSecondary,
+    lineHeight: 20,
+  },
   tabRow: { flexDirection: 'row', backgroundColor: colors.surface, padding: 6, borderRadius: 24, marginBottom: spacing.lg },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 16 },
   tabActive: { backgroundColor: colors.accent },

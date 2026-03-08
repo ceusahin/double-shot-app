@@ -40,13 +40,20 @@ export function TeamsStack() {
   return (
     <Stack.Navigator
       screenOptions={{
+        animation: 'slide_from_bottom',
+        contentStyle: { backgroundColor: colors.background },
         headerStyle: { backgroundColor: colors.background },
         headerTitleStyle: { ...typography.subtitle, color: colors.accent },
+        headerTintColor: colors.textPrimary,
         headerShadowVisible: false,
-        headerTitle: () => <AppHeaderTitle />,
+        headerStatusBarHeight: 0,
       }}
     >
-      <Stack.Screen name="TeamsList" component={TeamsScreen} options={{ title: 'Takımlar' }} />
+      <Stack.Screen
+        name="TeamsList"
+        component={TeamsScreen}
+        options={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
+      />
       <Stack.Screen name="TeamDetail" component={TeamDetailScreen} options={{ title: 'Takım' }} />
       <Stack.Screen name="TeamManagement" component={TeamManagementScreen} options={{ title: 'Ekip Yönetimi' }} />
       <Stack.Screen name="ShiftManagement" component={ShiftManagementScreen} options={{ title: 'Vardiya Yönetimi' }} />

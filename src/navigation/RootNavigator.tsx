@@ -8,9 +8,22 @@ import { AuthStack } from './AuthStack';
 import { MainStack } from './MainStack';
 import { SplashScreen } from '../components/SplashScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
-import { colors } from '../utils/theme';
+import { colors, fonts } from '../utils/theme';
 
 export const navigationRef = createNavigationContainerRef<{ Main: undefined }>();
+
+const darkTheme = {
+  dark: true,
+  colors: {
+    primary: colors.accent,
+    background: colors.bgDark,
+    card: colors.bgDark,
+    text: colors.textPrimary,
+    border: colors.border,
+    notification: colors.accent,
+  },
+  fonts,
+};
 
 function getInviteTokenFromUrl(url: string): string | null {
   const normalized = url.replace(/^doubleshot:\/\//, 'https://x/');
@@ -72,7 +85,7 @@ export function RootNavigator() {
 
   if (!isAuthenticated) {
     return (
-      <NavigationContainer>
+      <NavigationContainer theme={darkTheme}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Auth" component={AuthStack} />
         </Stack.Navigator>
@@ -97,7 +110,7 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} theme={darkTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Main" component={MainStack} />
       </Stack.Navigator>
