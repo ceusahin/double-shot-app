@@ -8,6 +8,7 @@ import { ShiftManagementScreen } from '../screens/ShiftManagementScreen';
 import { TimesheetScreen } from '../screens/TimesheetScreen';
 import { AreaRoleManagementScreen } from '../screens/AreaRoleManagementScreen';
 import { ShiftCheckInScreen } from '../screens/ShiftCheckInScreen';
+import { ShiftLocationManagementScreen } from '../screens/ShiftLocationManagementScreen';
 import { CreateTeamScreen } from '../screens/CreateTeamScreen';
 import { JoinTeamInAppScreen } from '../screens/JoinTeamInAppScreen';
 import { RoleCreationScreen } from '../screens/RoleCreationScreen';
@@ -26,6 +27,7 @@ export type TeamsStackParamList = {
   MemberProfile: { user: UserProfile };
   ShiftManagement: { team: Team & { role?: string } };
   Timesheet: { team: Team & { role?: string } };
+  ShiftLocationManagement: { team: Team & { role?: string } };
   AreaRoleManagement: { team: Team & { role?: string } };
   ShiftCheckIn: { team: Team };
   CreateTeam: undefined;
@@ -78,6 +80,7 @@ export function TeamsStack() {
       <Stack.Screen name="MemberProfile" component={MemberProfileScreen} options={{ title: 'Profil' }} />
       <Stack.Screen name="ShiftManagement" component={ShiftManagementScreen} options={{ title: 'Vardiya Yönetimi' }} />
       <Stack.Screen name="Timesheet" component={TimesheetScreen} options={{ title: 'Puantaj Yönetimi' }} />
+      <Stack.Screen name="ShiftLocationManagement" component={ShiftLocationManagementScreen} options={{ title: 'Vardiya Konum Yönetimi' }} />
       <Stack.Screen name="AreaRoleManagement" component={AreaRoleManagementScreen} options={{ title: 'Alan/Rol Yönetimi' }} />
       <Stack.Screen name="ShiftCheckIn" component={ShiftCheckInScreen} options={{ title: 'Vardiya girişi' }} />
       <Stack.Screen name="CreateTeam" component={CreateTeamScreen} options={{ title: 'Takım oluştur' }} />

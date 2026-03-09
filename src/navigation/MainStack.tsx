@@ -1,6 +1,7 @@
 import React from 'react';
 import { Easing } from 'react-native';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
+import { NotificationModalProvider } from '../context/NotificationModalContext';
 import { MainTabs } from './MainTabs';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { EquipmentGuideScreen } from '../screens/EquipmentGuideScreen';
@@ -27,6 +28,7 @@ const transitionSpec = {
 
 export function MainStack() {
   return (
+    <NotificationModalProvider>
     <Stack.Navigator
       screenOptions={({ route }) => ({
         headerShown: route.name !== 'MainTabs',
@@ -45,5 +47,6 @@ export function MainStack() {
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
       <Stack.Screen name="Equipment" component={EquipmentGuideScreen} options={{ title: 'Makine & Ekipman' }} />
     </Stack.Navigator>
+    </NotificationModalProvider>
   );
 }

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { getNotifications, isExpoGo } from './src/services/notificationsWrapper';
 import { useFonts } from '@expo-google-fonts/outfit/useFonts';
 import {
   Outfit_400Regular,
@@ -19,6 +20,19 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+// Expo Go'da expo-notifications hiç yüklenmez; böylece konsolda hata/uyarı çıkmaz
+if (!isExpoGo()) {
+  const Notifications = getNotifications();
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: true,
+      shouldShowBanner: true,
+    }),
+  });
+}
 
 export default function App() {
   const [fontsLoaded] = useFonts({

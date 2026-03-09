@@ -1,12 +1,14 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, TrainingCard } from '../components';
 import { useAuthStore } from '../store/authStore';
 import { getLatestTip } from '../services/tips';
 import { getMyTeams } from '../services/teams';
 import { getMyRolesSummary } from '../services/rbac';
+import { getMyShiftsForToday } from '../services/shifts';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
 
 export function HomeScreen() {
@@ -19,21 +21,50 @@ export function HomeScreen() {
   });
   const { data: teams = [] } = useQuery({
     queryKey: ['my-teams', user?.id],
-    queryFn: () => getMyTeams(user!.id),
+    queryFn: () => {
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid) return [];
+      return getMyTeams(uid);
+    },
     enabled: !!user?.id,
   });
   const { data: roleSummaries = [] } = useQuery({
     queryKey: ['my-roles', user?.id],
-    queryFn: () => getMyRolesSummary(user!.id),
+    queryFn: () => {
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid) return [];
+      return getMyRolesSummary(uid);
+    },
+    enabled: !!user?.id,
+  });
+  const { data: todayShifts = [] } = useQuery({
+    queryKey: ['my-shifts-today', user?.id],
+    queryFn: () => {
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid) return [];
+      return getMyShiftsForToday(uid);
+    },
     enabled: !!user?.id,
   });
 
   const isOwnerOnly = teams.length === 0 || teams.every((t) => t.owner_id === user?.id);
   const currentRole = roleSummaries[0];
+  const teamById = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    teams.forEach((t) => { map[t.id] = t.name; });
+    return map;
+  }, [teams]);
+
+  const formatShiftTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
   const goToRecipes = () => navigation.navigate('Recipes');
   const goToTraining = () => navigation.navigate('Training');
   const goToEquipment = () => parentNav?.navigate('Equipment');
+  const goToTeam = (teamId: string) => {
+    const team = teams.find((t) => t.id === teamId);
+    if (team) navigation.navigate('Team', { screen: 'TeamDetail', params: { team } });
+  };
 
   return (
     <ScrollView
@@ -88,11 +119,38 @@ export function HomeScreen() {
       </Card>
 
       <Text style={styles.sectionTitle}>Bugünkü vardiyan</Text>
-      <Card style={styles.card}>
-        <Text style={styles.placeholder}>
-          Henüz atanmış vardiya yok. Takımınıza katılıp vardiya planına bakın.
-        </Text>
-      </Card>
+      {todayShifts.length === 0 ? (
+        <Card style={styles.card}>
+          <Text style={styles.placeholder}>
+            Bugün için atanmış vardiya yok. Takım sayfasından vardiya planına bakabilirsiniz.
+          </Text>
+        </Card>
+      ) : (
+        todayShifts.map((shift) => (
+          <Pressable
+            key={shift.id}
+            onPress={() => goToTeam(shift.team_id)}
+            style={({ pressed }) => [styles.shiftCard, pressed && styles.shiftCardPressed]}
+          >
+            <Card style={styles.card} padded>
+              <View style={styles.shiftRow}>
+                <View style={styles.shiftIconWrap}>
+                  <Ionicons name="time-outline" size={22} color={colors.accent} />
+                </View>
+                <View style={styles.shiftContent}>
+                  <Text style={styles.shiftTime}>
+                    {formatShiftTime(shift.start_time)} – {formatShiftTime(shift.end_time)}
+                  </Text>
+                  {teamById[shift.team_id] && (
+                    <Text style={styles.shiftTeam}>{teamById[shift.team_id]}</Text>
+                  )}
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+              </View>
+            </Card>
+          </Pressable>
+        ))
+      )}
 
       <Text style={styles.sectionTitle}>Eğitimler</Text>
       <TrainingCard
@@ -186,6 +244,33 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   placeholder: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  shiftCard: {
+    marginBottom: spacing.sm,
+  },
+  shiftCardPressed: { opacity: 0.85 },
+  shiftRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  shiftIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shiftContent: { flex: 1 },
+  shiftTime: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  shiftTeam: {
     ...typography.caption,
     color: colors.textSecondary,
   },
