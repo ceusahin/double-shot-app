@@ -11,7 +11,12 @@ export function usePermissions(organizationId: string | null | undefined) {
   const userId = useAuthStore((s) => s.user?.id);
   const query = useQuery({
     queryKey: ['user-permissions', organizationId, userId],
-    queryFn: () => getUserPermissionKeys(userId!, organizationId!),
+    queryFn: () => {
+      const uid = useAuthStore.getState().user?.id;
+      const orgId = organizationId ?? null;
+      if (!uid || !orgId) return [];
+      return getUserPermissionKeys(uid, orgId);
+    },
     enabled: !!organizationId && !!userId,
   });
   const permissions = query.data ?? [];

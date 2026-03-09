@@ -138,7 +138,8 @@ export function TeamManagementScreen({ route }: Props) {
       if (orgId) {
         queryClient.invalidateQueries({ queryKey: ['org-roles', orgId] });
       }
-    }, [orgId, queryClient])
+      queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
+    }, [orgId, team.id, queryClient])
   );
   const canManageRoles = isOwner || has('manage_roles');
   const canAssignRoles = isOwner || has('assign_roles');

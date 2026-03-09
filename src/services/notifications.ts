@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getMyTeams } from './teams';
 
 export interface Notification {
   id: string;
@@ -7,6 +8,24 @@ export interface Notification {
   title: string;
   message: string;
   created_at: string;
+}
+
+/** Kullanıcının üye olduğu tüm takımların bildirimleri; her biri takım adı ile (ekip lideri çok takımlı ise hangi ekip için olduğu belli olur). */
+export interface NotificationWithTeam extends Notification {
+  team_name: string;
+}
+
+export async function getNotificationsForMyTeams(userId: string): Promise<NotificationWithTeam[]> {
+  const teams = await getMyTeams(userId);
+  const results = await Promise.all(
+    teams.map(async (team) => {
+      const list = await getTeamNotifications(team.id);
+      return list.map((n) => ({ ...n, team_name: team.name }));
+    })
+  );
+  const merged = results.flat();
+  merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return merged.slice(0, 50);
 }
 
 export async function getTeamNotifications(teamId: string): Promise<Notification[]> {

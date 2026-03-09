@@ -1,10 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Dimensions } from 'react-native';
-import { colors, spacing, typography } from '../utils/theme';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
+import { colors, spacing, typography, fonts } from '../utils/theme';
 
-const CLOCK_SIZE = Math.min(Dimensions.get('window').width - spacing.lg * 2, 280);
-const CENTER = CLOCK_SIZE / 2;
-const RADIUS = (CLOCK_SIZE / 2) - 28;
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = [0, 15, 30, 45];
 
@@ -40,63 +37,49 @@ export function ClockTimePicker({ value, onChange, onClose }: Props) {
     commit(hour, m);
   };
 
-  const positions = HOURS.map((h) => {
-    const angle = (h / 24) * 2 * Math.PI - Math.PI / 2;
-    return {
-      hour: h,
-      x: CENTER + RADIUS * Math.cos(angle),
-      y: CENTER + RADIUS * Math.sin(angle),
-    };
-  });
-
   return (
     <View style={styles.container}>
-      <View style={[styles.clockFace, { width: CLOCK_SIZE, height: CLOCK_SIZE }]}>
-        <View style={styles.clockRing} />
-        {step === 'hour' && (
-          <>
-            {positions.map(({ hour: h, x, y }) => (
+      {step === 'hour' && (
+        <>
+          <Text style={styles.stepTitle}>Saat seçin</Text>
+          <Text style={styles.stepHint}>0–23 arası saat</Text>
+          <View style={styles.hourGrid}>
+            {HOURS.map((h) => (
               <Pressable
                 key={h}
-                style={[
-                  styles.clockDot,
-                  {
-                    left: x - 18,
-                    top: y - 18,
-                    backgroundColor: hour === h ? colors.accent : colors.surfaceLight,
-                  },
-                ]}
+                style={[styles.hourChip, hour === h && styles.hourChipActive]}
                 onPress={() => handleHourSelect(h)}
               >
-                <Text style={[styles.clockDotText, hour === h && styles.clockDotTextActive]}>{h}</Text>
+                <Text style={[styles.hourChipText, hour === h && styles.hourChipTextActive]}>
+                  {String(h).padStart(2, '0')}
+                </Text>
               </Pressable>
             ))}
-            <Text style={styles.stepHint}>Saat seçin (0–23)</Text>
-          </>
-        )}
-        {step === 'minute' && (
-          <View style={styles.minuteRow}>
-            <Text style={styles.selectedHour}>{hour} saat</Text>
-            <Text style={styles.stepHint}>Dakika seçin</Text>
-            <View style={styles.minuteChips}>
-              {MINUTES.map((m) => (
-                <Pressable
-                  key={m}
-                  style={[styles.minuteChip, minute === m && styles.minuteChipActive]}
-                  onPress={() => handleMinuteSelect(m)}
-                >
-                  <Text style={[styles.minuteChipText, minute === m && styles.minuteChipTextActive]}>
-                    :{String(m).padStart(2, '0')}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-            <Pressable style={styles.backBtn} onPress={() => setStep('hour')}>
-              <Text style={styles.backBtnText}>← Saati değiştir</Text>
-            </Pressable>
           </View>
-        )}
-      </View>
+        </>
+      )}
+      {step === 'minute' && (
+        <View style={styles.minuteSection}>
+          <Text style={styles.stepTitle}>Dakika seçin</Text>
+          <Text style={styles.selectedHour}>{hour} saat</Text>
+          <View style={styles.minuteChips}>
+            {MINUTES.map((m) => (
+              <Pressable
+                key={m}
+                style={[styles.minuteChip, minute === m && styles.minuteChipActive]}
+                onPress={() => handleMinuteSelect(m)}
+              >
+                <Text style={[styles.minuteChipText, minute === m && styles.minuteChipTextActive]}>
+                  {String(m).padStart(2, '0')}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+          <Pressable style={styles.backBtn} onPress={() => setStep('hour')}>
+            <Text style={styles.backBtnText}>← Saati değiştir</Text>
+          </Pressable>
+        </View>
+      )}
       <Pressable style={styles.cancelBtn} onPress={onClose}>
         <Text style={styles.cancelBtnText}>İptal</Text>
       </Pressable>
@@ -108,81 +91,86 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.sm,
   },
-  clockFace: {
-    position: 'relative',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clockRing: {
-    position: 'absolute',
-    width: CLOCK_SIZE - 24,
-    height: CLOCK_SIZE - 24,
-    borderRadius: (CLOCK_SIZE - 24) / 2,
-    borderWidth: 3,
-    borderColor: colors.border,
-    top: 12,
-    left: 12,
-  },
-  clockDot: {
-    position: 'absolute',
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  clockDotText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
-  },
-  clockDotTextActive: {
-    color: colors.bgDark,
+  stepTitle: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
   },
   stepHint: {
     ...typography.caption,
     color: colors.textSecondary,
-    marginTop: spacing.md,
+    marginBottom: spacing.md,
   },
-  selectedHour: {
-    ...typography.subtitle,
-    color: colors.accent,
-    marginBottom: spacing.xs,
-  },
-  minuteRow: {
-    alignItems: 'center',
-  },
-  minuteChips: {
+  hourGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    marginTop: spacing.sm,
     gap: spacing.sm,
+    maxWidth: 280,
   },
-  minuteChip: {
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
+  hourChip: {
+    width: 40,
+    height: 40,
     borderRadius: 12,
     borderWidth: 2,
     borderColor: colors.border,
-    minWidth: 72,
+    backgroundColor: colors.surfaceLight,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  hourChipActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accent + '25',
+  },
+  hourChipText: {
+    fontSize: 15,
+    fontFamily: fonts.semibold,
+    color: colors.textSecondary,
+  },
+  hourChipTextActive: {
+    color: colors.accent,
+  },
+  minuteSection: {
+    alignItems: 'center',
+  },
+  selectedHour: {
+    ...typography.caption,
+    color: colors.accent,
+    marginBottom: spacing.md,
+  },
+  minuteChips: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  minuteChip: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.border,
+    minWidth: 64,
+    alignItems: 'center',
+    backgroundColor: colors.surfaceLight,
   },
   minuteChipActive: {
     borderColor: colors.accent,
-    backgroundColor: 'rgba(212,175,55,0.2)',
+    backgroundColor: colors.accent + '25',
   },
   minuteChipText: {
     fontSize: 18,
-    fontWeight: '600',
+    fontFamily: fonts.semibold,
     color: colors.textPrimary,
   },
   minuteChipTextActive: {
     color: colors.accent,
   },
-  backBtn: { marginTop: spacing.md },
-  backBtnText: { fontSize: 14, color: colors.accent },
+  backBtn: { marginBottom: spacing.sm },
+  backBtnText: { fontSize: 14, color: colors.accent, fontFamily: fonts.medium },
   cancelBtn: {
     marginTop: spacing.lg,
     paddingVertical: spacing.sm,

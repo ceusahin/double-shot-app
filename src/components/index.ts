@@ -9,3 +9,4 @@ export { TrainingCard } from './TrainingCard';
 export { TabBar } from './TabBar';
 export { SplashScreen } from './SplashScreen';
 export { ClockTimePicker } from './ClockTimePicker';
+export { HeaderRightWithNotif } from './HeaderRightWithNotif';

@@ -10,6 +10,7 @@ export function useLocation() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  /** Tam konum al (vardiya başlatırken kullan). */
   const requestPermissionAndGetLocation = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -33,6 +34,38 @@ export function useLocation() {
       setError(message);
       return null;
     } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Ekran açılışında hızlı göstermek için: önce önbelleğe alınmış konumu kullan (anında),
+   * ardından arka planda güncel konumu al ve güncelle. Tekrar girişte uzun bekletmez.
+   */
+  const loadLocationForDisplay = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setError('Konum izni verilmedi.');
+        setLoading(false);
+        return;
+      }
+      const lastKnown = await Location.getLastKnownPositionAsync();
+      if (lastKnown) {
+        const coords = { lat: lastKnown.coords.latitude, lng: lastKnown.coords.longitude };
+        setLocation(coords);
+        setLoading(false);
+      }
+      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced })
+        .then((loc) => {
+          setLocation({ lat: loc.coords.latitude, lng: loc.coords.longitude });
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+      if (!lastKnown) return;
+    } catch {
       setLoading(false);
     }
   }, []);
@@ -63,6 +96,7 @@ export function useLocation() {
     error,
     loading,
     requestPermissionAndGetLocation,
+    loadLocationForDisplay,
     distanceToStore,
     isWithinRadius,
   };

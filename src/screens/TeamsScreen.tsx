@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery } from '@tanstack/react-query';
@@ -11,22 +11,42 @@ import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 type Nav = StackNavigationProp<TeamsStackParamList, 'TeamsList'>;
 
+/** Çalışan: tek ekip, MANAGER değil → liste gösterme, doğrudan takım sayfasına git */
+function isWorkerSingleTeam(teams: { role?: string }[], isLoading: boolean): boolean {
+  return !isLoading && teams.length === 1 && teams[0].role !== 'MANAGER';
+}
+
 export function TeamsScreen() {
   const navigation = useNavigation<Nav>();
   const userId = useAuthStore((s) => s.user?.id);
   const { data: teams = [], isLoading } = useQuery({
     queryKey: ['my-teams', userId],
-    queryFn: () => getMyTeams(userId!),
+    queryFn: () => {
+      const uid = useAuthStore.getState().user?.id;
+      if (!uid) return [];
+      return getMyTeams(uid);
+    },
     enabled: !!userId,
   });
 
-  // Barista (tek takım, owner değil): doğrudan o takım sayfasına git
+  const workerSingleTeam = isWorkerSingleTeam(teams, isLoading);
+
+  // Çalışan (tek takım): doğrudan takım sayfasına git, "Ekiplerim" listesini gösterme
   useEffect(() => {
-    if (isLoading || teams.length !== 1) return;
-    const team = teams[0];
-    if (team.role === 'MANAGER') return;
-    navigation.replace('TeamDetail', { team });
-  }, [isLoading, teams, navigation]);
+    if (!workerSingleTeam) return;
+    navigation.replace('TeamDetail', { team: teams[0] });
+  }, [workerSingleTeam, teams, navigation]);
+
+  // Veri yokken veya çalışan tek ekipte: "Ekiplerim" listesini gösterme (çalışan direkt takım sayfasına gidecek)
+  if (isLoading || workerSingleTeam) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.loadingWrap}>
+          <ActivityIndicator size="large" color={colors.accent} />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <ScrollView
@@ -36,9 +56,7 @@ export function TeamsScreen() {
     >
       <Text style={styles.sectionTitle}>Takımlarım</Text>
 
-      {isLoading ? (
-        <Card><Text style={styles.placeholder}>Yükleniyor…</Text></Card>
-      ) : teams.length === 0 ? (
+      {teams.length === 0 ? (
         <Card>
           <Text style={styles.placeholder}>
             Henüz bir takıma katılmadınız. Yöneticinizden davet linki alın veya takım oluşturun.
@@ -91,6 +109,11 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bgDark,
+  },
+  loadingWrap: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     padding: spacing.md,

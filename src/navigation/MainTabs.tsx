@@ -9,9 +9,8 @@ import { TeamsStack } from './TeamsStack';
 import { TrainingScreen } from '../screens/TrainingScreen';
 import { RecipesStack } from './RecipesStack';
 import { AppHeaderTitle } from '../components/AppHeaderTitle';
-import { Avatar } from '../components/Avatar';
+import { HeaderRightWithNotif } from '../components/HeaderRightWithNotif';
 import { withTabTransition } from '../components/TabScreenWithTransition';
-import { useAuthStore } from '../store/authStore';
 import { colors, spacing, typography, fonts } from '../utils/theme';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
@@ -40,16 +39,9 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 const TAB_BAR_HEIGHT = 68;
 
-/** Takımlarım listesi aynı kalsın; takım seçilip detay/yönetim açıldığında DoubleShot–stack header boşluğu diğer menülerle aynı olsun */
 function TeamTabWrapper() {
-  const navigation = useNavigation();
-  const state = navigation.getState();
-  const teamRoute = state?.routes?.[state.index];
-  const stackState = teamRoute?.state as { routes: { name: string }[]; index: number } | undefined;
-  const stackRouteName = stackState?.routes?.[stackState.index]?.name;
-  const isStackScreenWithHeader = stackRouteName != null && stackRouteName !== 'TeamsList';
   return (
-    <View style={[styles.teamTabWrap, isStackScreenWithHeader && styles.teamTabWrapStack]}>
+    <View style={styles.teamTabWrap}>
       <TeamsStack />
     </View>
   );
@@ -109,26 +101,11 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   );
 }
 
-function HeaderProfileButton({ onPress }: { onPress: () => void }) {
-  const user = useAuthStore((s) => s.user);
-  const displayName = user ? [user.name, user.surname].filter(Boolean).join(' ') || user.email : '';
-
-  return (
-    <Pressable onPress={onPress} style={styles.headerProfileBtn} hitSlop={12}>
-      {user?.profile_photo ? (
-        <Avatar source={user.profile_photo} name={displayName} size={44} />
-      ) : (
-        <Ionicons name="person-outline" size={26} color={colors.textSecondary} />
-      )}
-    </Pressable>
-  );
-}
-
 export function MainTabs() {
   return (
     <Tab.Navigator
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={({ navigation }) => ({
+      screenOptions={() => ({
         lazy: true,
         headerShown: true,
         headerStyle: { backgroundColor: colors.bgDark },
@@ -136,9 +113,7 @@ export function MainTabs() {
         headerTitleStyle: { ...typography.subtitle, color: colors.textPrimary },
         headerShadowVisible: false,
         headerTitle: () => <AppHeaderTitle />,
-        headerRight: () => (
-          <HeaderProfileButton onPress={() => (navigation.getParent() as any)?.navigate('Profile')} />
-        ),
+        headerRight: () => <HeaderRightWithNotif />,
       })}
     >
       <Tab.Screen name="Home" component={WithTransitionHome} />
@@ -152,9 +127,6 @@ export function MainTabs() {
 const styles = StyleSheet.create({
   teamTabWrap: {
     flex: 1,
-  },
-  teamTabWrapStack: {
-    marginTop: -52,
   },
   tabBarOuter: {
     backgroundColor: colors.surface,
@@ -185,18 +157,5 @@ const styles = StyleSheet.create({
     ...typography.small,
     fontFamily: fonts.medium,
     paddingHorizontal: 4,
-  },
-  headerProfileBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: colors.surfaceLight,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: spacing.md,
-    marginTop: spacing.md,
-    overflow: 'hidden',
   },
 });
