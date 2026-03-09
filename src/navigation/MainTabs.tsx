@@ -1,5 +1,6 @@
 import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -8,7 +9,9 @@ import { TeamsStack } from './TeamsStack';
 import { TrainingScreen } from '../screens/TrainingScreen';
 import { RecipesStack } from './RecipesStack';
 import { AppHeaderTitle } from '../components/AppHeaderTitle';
+import { Avatar } from '../components/Avatar';
 import { withTabTransition } from '../components/TabScreenWithTransition';
+import { useAuthStore } from '../store/authStore';
 import { colors, spacing, typography, fonts } from '../utils/theme';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
@@ -37,8 +40,19 @@ const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 
 const TAB_BAR_HEIGHT = 68;
 
+/** Takımlarım listesi aynı kalsın; takım seçilip detay/yönetim açıldığında DoubleShot–stack header boşluğu diğer menülerle aynı olsun */
 function TeamTabWrapper() {
-  return <View style={styles.teamTabWrap}><TeamsStack /></View>;
+  const navigation = useNavigation();
+  const state = navigation.getState();
+  const teamRoute = state?.routes?.[state.index];
+  const stackState = teamRoute?.state as { routes: { name: string }[]; index: number } | undefined;
+  const stackRouteName = stackState?.routes?.[stackState.index]?.name;
+  const isStackScreenWithHeader = stackRouteName != null && stackRouteName !== 'TeamsList';
+  return (
+    <View style={[styles.teamTabWrap, isStackScreenWithHeader && styles.teamTabWrapStack]}>
+      <TeamsStack />
+    </View>
+  );
 }
 
 const WithTransitionHome = withTabTransition(HomeScreen);
@@ -96,9 +110,16 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
 }
 
 function HeaderProfileButton({ onPress }: { onPress: () => void }) {
+  const user = useAuthStore((s) => s.user);
+  const displayName = user ? [user.name, user.surname].filter(Boolean).join(' ') || user.email : '';
+
   return (
     <Pressable onPress={onPress} style={styles.headerProfileBtn} hitSlop={12}>
-      <Ionicons name="person-outline" size={20} color={colors.textSecondary} />
+      {user?.profile_photo ? (
+        <Avatar source={user.profile_photo} name={displayName} size={44} />
+      ) : (
+        <Ionicons name="person-outline" size={26} color={colors.textSecondary} />
+      )}
     </Pressable>
   );
 }
@@ -132,6 +153,9 @@ const styles = StyleSheet.create({
   teamTabWrap: {
     flex: 1,
   },
+  teamTabWrapStack: {
+    marginTop: -52,
+  },
   tabBarOuter: {
     backgroundColor: colors.surface,
     borderTopColor: colors.border,
@@ -163,14 +187,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   headerProfileBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.surfaceLight,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.sm,
+    marginRight: spacing.md,
+    marginTop: spacing.md,
+    overflow: 'hidden',
   },
 });

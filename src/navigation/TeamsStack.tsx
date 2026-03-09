@@ -1,5 +1,6 @@
 import React from 'react';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Easing } from 'react-native';
+import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
 import { TeamsScreen } from '../screens/TeamsScreen';
 import { TeamDetailScreen } from '../screens/TeamDetailScreen';
 import { TeamManagementScreen } from '../screens/TeamManagementScreen';
@@ -13,15 +14,16 @@ import { RoleCreationScreen } from '../screens/RoleCreationScreen';
 import { RoleLevelScreen } from '../screens/RoleLevelScreen';
 import { PermissionAssignmentScreen } from '../screens/PermissionAssignmentScreen';
 import { MemberRoleScreen } from '../screens/MemberRoleScreen';
-import { AppHeaderTitle } from '../components/AppHeaderTitle';
-import { colors, typography } from '../utils/theme';
-import type { Team } from '../types';
+import { MemberProfileScreen } from '../screens/MemberProfileScreen';
+import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
+import type { Team, UserProfile } from '../types';
 import type { Role, RoleLevel, Member } from '../types/rbac';
 
 export type TeamsStackParamList = {
   TeamsList: undefined;
   TeamDetail: { team: Team & { role?: string } };
   TeamManagement: { team: Team & { role?: string } };
+  MemberProfile: { user: UserProfile };
   ShiftManagement: { team: Team & { role?: string } };
   Timesheet: { team: Team & { role?: string } };
   AreaRoleManagement: { team: Team & { role?: string } };
@@ -34,28 +36,46 @@ export type TeamsStackParamList = {
   MemberRole: { team: Team; member: Member };
 };
 
-const Stack = createNativeStackNavigator<TeamsStackParamList>();
+const Stack = createStackNavigator<TeamsStackParamList>();
+
+const transitionSpec = {
+  open: {
+    animation: 'timing' as const,
+    config: { duration: TRANSITION_DURATION, easing: Easing.out(Easing.ease) },
+  },
+  close: {
+    animation: 'timing' as const,
+    config: { duration: TRANSITION_DURATION, easing: Easing.inOut(Easing.ease) },
+  },
+};
+
+const sharedScreenOptions = {
+  cardStyle: { backgroundColor: colors.background },
+  headerStyle: { backgroundColor: colors.background },
+  headerTitleStyle: { ...typography.subtitle, color: colors.accent },
+  headerTintColor: colors.textPrimary,
+  headerShadowVisible: false,
+  gestureEnabled: true,
+};
 
 export function TeamsStack() {
   return (
     <Stack.Navigator
-      screenOptions={{
-        animation: 'slide_from_bottom',
-        contentStyle: { backgroundColor: colors.background },
-        headerStyle: { backgroundColor: colors.background },
-        headerTitleStyle: { ...typography.subtitle, color: colors.accent },
-        headerTintColor: colors.textPrimary,
-        headerShadowVisible: false,
-        headerStatusBarHeight: 0,
-      }}
+      screenOptions={({ route }) => ({
+        ...sharedScreenOptions,
+        cardStyleInterpolator:
+          route.name === 'TeamsList' ? undefined : CardStyleInterpolators.forVerticalIOS,
+        transitionSpec: route.name === 'TeamsList' ? undefined : transitionSpec,
+      })}
     >
       <Stack.Screen
         name="TeamsList"
         component={TeamsScreen}
-        options={{ headerShown: false, contentStyle: { backgroundColor: colors.background } }}
+        options={{ headerShown: false }}
       />
       <Stack.Screen name="TeamDetail" component={TeamDetailScreen} options={{ title: 'Takım' }} />
       <Stack.Screen name="TeamManagement" component={TeamManagementScreen} options={{ title: 'Ekip Yönetimi' }} />
+      <Stack.Screen name="MemberProfile" component={MemberProfileScreen} options={{ title: 'Profil' }} />
       <Stack.Screen name="ShiftManagement" component={ShiftManagementScreen} options={{ title: 'Vardiya Yönetimi' }} />
       <Stack.Screen name="Timesheet" component={TimesheetScreen} options={{ title: 'Puantaj Yönetimi' }} />
       <Stack.Screen name="AreaRoleManagement" component={AreaRoleManagementScreen} options={{ title: 'Alan/Rol Yönetimi' }} />

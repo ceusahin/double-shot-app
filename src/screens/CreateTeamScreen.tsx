@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, Input, Card } from '../components';
 import { useAuthStore } from '../store/authStore';
@@ -9,7 +9,7 @@ import { createTeam } from '../services/teams';
 import { colors, spacing, typography } from '../utils/theme';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
-type Nav = NativeStackNavigationProp<TeamsStackParamList, 'CreateTeam'>;
+type Nav = StackNavigationProp<TeamsStackParamList, 'CreateTeam'>;
 
 export function CreateTeamScreen() {
   const navigation = useNavigation<Nav>();

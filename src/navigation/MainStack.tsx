@@ -1,9 +1,10 @@
 import React from 'react';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { Easing } from 'react-native';
+import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
 import { MainTabs } from './MainTabs';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { EquipmentGuideScreen } from '../screens/EquipmentGuideScreen';
-import { colors, typography } from '../utils/theme';
+import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
 
 export type MainStackParamList = {
   MainTabs: undefined;
@@ -11,25 +12,36 @@ export type MainStackParamList = {
   Equipment: undefined;
 };
 
-const Stack = createNativeStackNavigator<MainStackParamList>();
+const Stack = createStackNavigator<MainStackParamList>();
+
+const transitionSpec = {
+  open: {
+    animation: 'timing' as const,
+    config: { duration: TRANSITION_DURATION, easing: Easing.out(Easing.ease) },
+  },
+  close: {
+    animation: 'timing' as const,
+    config: { duration: TRANSITION_DURATION, easing: Easing.inOut(Easing.ease) },
+  },
+};
 
 export function MainStack() {
   return (
     <Stack.Navigator
-      screenOptions={{
-        animation: 'slide_from_bottom',
-        contentStyle: { backgroundColor: colors.bgDark },
+      screenOptions={({ route }) => ({
+        headerShown: route.name !== 'MainTabs',
+        cardStyle: { backgroundColor: colors.bgDark },
         headerStyle: { backgroundColor: colors.bgDark },
         headerTitleStyle: { ...typography.subtitle, color: colors.textPrimary },
         headerTintColor: colors.textPrimary,
         headerShadowVisible: false,
-      }}
+        cardStyleInterpolator:
+          route.name === 'MainTabs' ? undefined : CardStyleInterpolators.forVerticalIOS,
+        transitionSpec: route.name === 'MainTabs' ? undefined : transitionSpec,
+        gestureEnabled: true,
+      })}
     >
-      <Stack.Screen
-        name="MainTabs"
-        component={MainTabs}
-        options={{ headerShown: false }}
-      />
+      <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
       <Stack.Screen name="Equipment" component={EquipmentGuideScreen} options={{ title: 'Makine & Ekipman' }} />
     </Stack.Navigator>

@@ -2,9 +2,7 @@ import React, { useEffect, useRef, useMemo } from 'react';
 import { Animated, Dimensions, Easing, StyleSheet } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 import type { ComponentType } from 'react';
-import { colors } from '../utils/theme';
-
-const DURATION = 280;
+import { colors, TRANSITION_DURATION } from '../utils/theme';
 const SLIDE_FRACTION = 0.22;
 
 /**
@@ -29,13 +27,13 @@ export function withTabTransition<P extends object>(Screen: ComponentType<P>) {
       Animated.parallel([
         Animated.timing(translateY, {
           toValue: isFocused ? 0 : slideOffset,
-          duration: DURATION,
+          duration: TRANSITION_DURATION,
           easing: easeOut,
           useNativeDriver: true,
         }),
         Animated.timing(opacity, {
           toValue: isFocused ? 1 : 0,
-          duration: DURATION,
+          duration: TRANSITION_DURATION,
           easing: easeOut,
           useNativeDriver: true,
         }),

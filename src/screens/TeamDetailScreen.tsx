@@ -2,14 +2,15 @@ import React, { useState, useLayoutEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal, Share, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, LeaderboardItem, TabBar } from '../components';
 import { useAuthStore } from '../store/authStore';
 import { getTeamMembers, createTeamInviteLink, removeMember } from '../services/teams';
 import { getTeamShifts } from '../services/shifts';
 import { getTeamNotifications } from '../services/notifications';
-import { colors, spacing, typography } from '../utils/theme';
+import Ionicons from '@expo/vector-icons/Ionicons';
+import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
 import type { Team } from '../types';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
@@ -17,7 +18,7 @@ type Props = {
   route: { params: { team: Team & { role?: string } } };
 };
 
-type Nav = NativeStackNavigationProp<TeamsStackParamList, 'TeamDetail'>;
+type Nav = StackNavigationProp<TeamsStackParamList, 'TeamDetail'>;
 
 type TeamTabKey = 'genel' | 'vardiya' | 'bildirimler';
 
@@ -165,14 +166,19 @@ export function TeamDetailScreen({ route }: Props) {
 
       {activeTab === 'genel' && (
         <>
-          <Card style={styles.card}>
-            <Button
-              title="Vardiya girişi (GPS)"
-              onPress={() => navigation.navigate('ShiftCheckIn', { team })}
-              variant="primary"
-              style={styles.btn}
-            />
-          </Card>
+          <Pressable
+            onPress={() => navigation.navigate('ShiftCheckIn', { team })}
+            style={({ pressed }) => [styles.shiftCheckInCard, pressed && styles.shiftCheckInCardPressed]}
+          >
+            <View style={styles.shiftCheckInIconWrap}>
+              <Ionicons name="location" size={28} color={colors.accent} />
+            </View>
+            <View style={styles.shiftCheckInText}>
+              <Text style={styles.shiftCheckInTitle}>Vardiya girişi</Text>
+              <Text style={styles.shiftCheckInSubtitle}>Konumunuzla mesai başlatın</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
+          </Pressable>
 
           {isManager && (
             <Card style={styles.card}>
@@ -196,6 +202,7 @@ export function TeamDetailScreen({ route }: Props) {
                   user={m.user}
                   score={m.user.experience_points}
                   scoreLabel="XP"
+                  onPress={() => navigation.navigate('MemberProfile', { user: m.user! })}
                 />
               ) : null
             )
@@ -309,6 +316,29 @@ const styles = StyleSheet.create({
   card: { marginBottom: spacing.lg },
   cardTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.sm },
   btn: { marginTop: spacing.sm },
+  shiftCheckInCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    marginBottom: spacing.lg,
+    backgroundColor: colors.glassBg,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    gap: spacing.md,
+  },
+  shiftCheckInCardPressed: { opacity: 0.92 },
+  shiftCheckInIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.accent + '18',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shiftCheckInText: { flex: 1, minWidth: 0 },
+  shiftCheckInTitle: { ...typography.body, fontFamily: fonts.semibold, color: colors.textPrimary },
+  shiftCheckInSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.md },
   placeholder: { ...typography.body, color: colors.textSecondary },
   shiftCard: { marginBottom: spacing.sm },

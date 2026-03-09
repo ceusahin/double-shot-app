@@ -40,6 +40,9 @@ export const spacing = {
   xxl: 48,
 } as const;
 
+/** Uygulama genelinde geçiş animasyon süresi (ms) – tab ve stack geçişleri aynı hızda */
+export const TRANSITION_DURATION = 380;
+
 export const borderRadius = {
   sm: 8,
   md: 16,

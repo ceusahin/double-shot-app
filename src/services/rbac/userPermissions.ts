@@ -1,14 +1,41 @@
 import { supabase } from '../supabase';
-import type { PermissionKey } from '../../types/rbac';
+import { type PermissionKey, PERMISSION_KEYS } from '../../types/rbac';
+
+/**
+ * Ekip lideri (ekip sahibi veya MANAGER) kendi ekiplerinde tüm yetkilere sahiptir.
+ */
+async function isTeamLeader(userId: string, organizationId: string): Promise<boolean> {
+  const { data: teams, error: teamError } = await supabase
+    .from('teams')
+    .select('id, owner_id')
+    .eq('organization_id', organizationId)
+    .limit(1);
+  if (teamError || !teams?.length) return false;
+  const team = teams[0];
+  if (team.owner_id === userId) return true;
+  const { data: member, error: tmError } = await supabase
+    .from('team_members')
+    .select('id')
+    .eq('team_id', team.id)
+    .eq('user_id', userId)
+    .eq('role', 'MANAGER')
+    .limit(1)
+    .maybeSingle();
+  return !tmError && !!member;
+}
 
 /**
  * Get permission keys for a user in an organization (from their assigned role levels).
- * Returns empty array if user has no role or no permissions.
+ * Ekip liderleri (owner veya MANAGER) kendi ekiplerinde tüm yetkilere sahiptir.
  */
 export async function getUserPermissionKeys(
   userId: string,
   organizationId: string
 ): Promise<PermissionKey[]> {
+  if (await isTeamLeader(userId, organizationId)) {
+    return [...PERMISSION_KEYS];
+  }
+
   const { data: memberRows, error: memberError } = await supabase
     .from('members')
     .select('id')

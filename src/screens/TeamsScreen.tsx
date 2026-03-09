@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery } from '@tanstack/react-query';
 import { Card, Button } from '../components';
 import { getMyTeams } from '../services/teams';
@@ -9,7 +9,7 @@ import { useAuthStore } from '../store/authStore';
 import { colors, spacing, typography } from '../utils/theme';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
-type Nav = NativeStackNavigationProp<TeamsStackParamList, 'TeamsList'>;
+type Nav = StackNavigationProp<TeamsStackParamList, 'TeamsList'>;
 
 export function TeamsScreen() {
   const navigation = useNavigation<Nav>();

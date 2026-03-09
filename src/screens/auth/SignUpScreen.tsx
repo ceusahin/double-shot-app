@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
@@ -87,6 +88,9 @@ export function SignUpScreen({ navigation }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.header}>
+          <View style={styles.logo}>
+            <Image source={require('../../../assets/logo.png')} style={[styles.logoImage, { tintColor: colors.accent }]} resizeMode="contain" />
+          </View>
           <Text style={styles.title}>Kayıt Ol</Text>
           <Text style={styles.subtitle}>Double Shot ailesine katıl</Text>
         </View>
@@ -168,7 +172,24 @@ const styles = StyleSheet.create({
     paddingTop: 48,
   },
   header: {
+    alignItems: 'center',
     marginBottom: spacing.lg,
+  },
+  logo: {
+    width: 64,
+    height: 64,
+    borderRadius: borderRadius.lg,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  logoImage: {
+    width: 42,
+    height: 42,
   },
   title: {
     ...typography.title,

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Button } from '../components';
@@ -95,6 +96,19 @@ export function TrainingScreen() {
     [trainingsWithProgress]
   );
   const list = activeTab === 'active' ? activeList : completedList;
+
+  const gradeTrainings = useMemo(
+    () => trainingsWithProgress.filter((t) => t.course_level === grade),
+    [trainingsWithProgress, grade]
+  );
+  const gradeCompleted = useMemo(
+    () => gradeTrainings.filter((t) => t.completed).length,
+    [gradeTrainings]
+  );
+  const completionPercent = gradeTrainings.length
+    ? Math.round((gradeCompleted / gradeTrainings.length) * 100)
+    : 0;
+  const levelLabel = user?.level ?? 'Beginner';
   const filteredList =
     activeFilter === 'all' ? list : list.filter((t) => t.category === activeFilter);
 
@@ -179,8 +193,15 @@ export function TrainingScreen() {
       <Text style={styles.subtitle}>Uzmanlık yolculuğunuza devam edin.</Text>
 
       <View style={styles.levelBlock}>
-        <View style={styles.levelBlockTop}>
-          <Text style={styles.levelBlockCaption}>Mevcut seviye</Text>
+        <LinearGradient
+          colors={['#1a1a1e', '#121214', '#0e0e10']}
+          style={styles.levelBlockBg}
+        />
+        <View style={styles.levelBlockStarBg}>
+          <Ionicons name="star" size={210} color={colors.accent} />
+        </View>
+        <View style={styles.levelBlockHeader}>
+          <Text style={styles.levelBlockCaption}>MEVCUT SEVİYE</Text>
           <Pressable
             onPress={() => setShowLevelInfoModal(true)}
             hitSlop={12}
@@ -189,17 +210,26 @@ export function TrainingScreen() {
             <Ionicons name="information-circle-outline" size={22} color={colors.textSecondary} />
           </Pressable>
         </View>
-        <View style={styles.levelBlockRow}>
+        <View style={styles.levelBlockBody}>
           <View style={styles.levelBlockLeft}>
-            <Text style={styles.levelBlockName}>{(user?.level ?? 'Beginner').toUpperCase()}</Text>
+            <Text style={styles.levelBlockName}>{levelLabel.toUpperCase()}</Text>
             <View style={styles.levelGradePill}>
               <Text style={styles.levelGradeText}>{grade}</Text>
             </View>
           </View>
-          <View style={styles.levelPointsWrap}>
-            <Text style={styles.levelPointsValue}>{points}</Text>
-            <Text style={styles.levelPointsLabel}>Eğitim puanı</Text>
+          <View style={styles.levelBlockRight}>
+            <View style={styles.levelPointsWrap}>
+              <Text style={styles.levelPointsValue}>{points}</Text>
+              <Text style={styles.levelPointsLabel} numberOfLines={2}>Eğitim Puanı</Text>
+            </View>
           </View>
+        </View>
+        <View style={styles.levelProgressHeader}>
+          <Text style={styles.levelProgressDesc}>{grade} derslerinin tamamlama oranı</Text>
+          <Text style={styles.levelPercent}>%{completionPercent}</Text>
+        </View>
+        <View style={styles.levelProgressTrack}>
+          <View style={[styles.levelProgressFill, { width: `${completionPercent}%` }]} />
         </View>
       </View>
 
@@ -346,69 +376,135 @@ const styles = StyleSheet.create({
   titleAccent: { color: colors.accent },
   subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.lg },
   levelBlock: {
-    marginBottom: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
+    marginBottom: spacing.md,
+    borderRadius: 16,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     borderLeftWidth: 4,
     borderLeftColor: colors.accent,
+    borderTopWidth: 1,
+    borderRightWidth: 1,
+    borderBottomWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.05)',
+    borderRightColor: 'rgba(255,255,255,0.05)',
+    borderBottomColor: 'rgba(255,255,255,0.05)',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  levelBlockTop: {
+  levelBlockBg: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+  },
+  levelBlockStarBg: {
+    position: 'absolute',
+    right: -100,
+    top: '50%',
+    marginTop: -90,
+    bottom: 0,
+    width: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    opacity: 0.22,
+  },
+  levelBlockHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.sm,
+    marginBottom: 4,
   },
   levelBlockCaption: {
-    ...typography.small,
-    fontFamily: fonts.semibold,
-    color: colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
-  },
-  levelInfoBtn: { padding: spacing.xs },
-  levelBlockRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  levelBlockLeft: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
-  levelBlockName: {
-    ...typography.subtitle,
+    fontSize: 13,
     fontFamily: fonts.bold,
-    color: colors.textPrimary,
+    color: colors.accent,
     textTransform: 'uppercase',
     letterSpacing: 1.2,
   },
+  levelInfoBtn: { padding: spacing.xs },
+  levelBlockBody: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  levelBlockLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flexWrap: 'wrap',
+    flex: 1,
+  },
+  levelBlockName: {
+    fontSize: 20,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    letterSpacing: 1,
+  },
   levelGradePill: {
-    backgroundColor: 'rgba(212, 175, 55, 0.22)',
-    paddingVertical: 5,
-    paddingHorizontal: spacing.sm + 2,
-    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.accent,
   },
   levelGradeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontFamily: fonts.bold,
-    color: colors.accent,
-    letterSpacing: 0.5,
+    color: colors.textPrimary,
+    letterSpacing: 0.8,
   },
-  levelPointsWrap: { alignItems: 'flex-end' },
+  levelBlockRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    minWidth: 100,
+    position: 'relative',
+  },
+  levelPointsWrap: { alignItems: 'flex-end', zIndex: 1, minWidth: 90 },
   levelPointsValue: {
-    ...typography.title,
-    fontSize: 26,
+    fontSize: 28,
     fontFamily: fonts.bold,
     color: colors.textPrimary,
   },
   levelPointsLabel: {
-    ...typography.small,
-    fontFamily: fonts.medium,
+    fontSize: 12,
+    fontFamily: fonts.bold,
     color: colors.textSecondary,
-    marginTop: 2,
+    marginTop: 1,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+  },
+  levelProgressHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 3,
+  },
+  levelProgressDesc: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    flex: 1,
+  },
+  levelPercent: {
+    fontSize: 15,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    marginLeft: spacing.sm,
+  },
+  levelProgressTrack: {
+    height: 6,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  levelProgressFill: {
+    height: '100%',
+    backgroundColor: colors.accent,
+    borderRadius: 3,
   },
   levelInfoRow: {
     flexDirection: 'row',

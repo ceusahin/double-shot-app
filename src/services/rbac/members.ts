@@ -47,6 +47,30 @@ export async function listMembers(organizationId: string): Promise<Member[]> {
   })) as Member[];
 }
 
+/** Üyeleri atanmış rollerle birlikte getirir (rol adı + seviye adı). */
+export interface MemberWithRoles extends Member {
+  member_roles?: { id: string; role?: { name: string }; role_level?: { name: string } }[];
+}
+
+export async function listMembersWithRoles(organizationId: string): Promise<MemberWithRoles[]> {
+  const { data, error } = await supabase
+    .from('members')
+    .select(`
+      *,
+      user:users(id, name, surname, email, profile_photo),
+      member_roles(
+        id,
+        role:roles(name),
+        role_level:role_levels(name)
+      )
+    `)
+    .eq('organization_id', organizationId)
+    .eq('status', 'active')
+    .order('joined_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as MemberWithRoles[];
+}
+
 export async function getMemberRoles(memberId: string): Promise<MemberRole[]> {
   const { data, error } = await supabase
     .from('member_roles')
