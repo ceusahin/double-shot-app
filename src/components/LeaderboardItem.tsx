@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { Avatar } from './Avatar';
 import { colors, spacing, typography } from '../utils/theme';
 import type { UserProfile } from '../types';
@@ -9,6 +9,7 @@ interface LeaderboardItemProps {
   user: UserProfile;
   score: number;
   scoreLabel?: string;
+  onPress?: () => void;
 }
 
 export function LeaderboardItem({
@@ -16,11 +17,12 @@ export function LeaderboardItem({
   user,
   score,
   scoreLabel = 'XP',
+  onPress,
 }: LeaderboardItemProps) {
   const displayName = [user.name, user.surname].filter(Boolean).join(' ') || user.email;
 
-  return (
-    <View style={styles.container}>
+  const content = (
+    <>
       <View style={styles.rank}>
         <Text style={styles.rankText}>#{rank}</Text>
       </View>
@@ -39,8 +41,18 @@ export function LeaderboardItem({
         <Text style={styles.score}>{score}</Text>
         <Text style={styles.scoreLabel}>{scoreLabel}</Text>
       </View>
-    </View>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable onPress={onPress} style={({ pressed }) => [styles.container, pressed && styles.pressed]}>
+        {content}
+      </Pressable>
+    );
+  }
+
+  return <View style={styles.container}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -53,6 +65,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: spacing.sm,
     gap: spacing.md,
+  },
+  pressed: {
+    opacity: 0.85,
   },
   rank: {
     minWidth: 36,

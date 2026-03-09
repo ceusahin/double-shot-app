@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../components';
 import { colors, spacing, typography } from '../utils/theme';
 import { getRecipeDetail } from '../data/recipes';
@@ -15,7 +16,7 @@ export function RecipeDetailScreen() {
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.header}>
         <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backArrow}>←</Text>
+          <Ionicons name="chevron-back" size={26} color={colors.accent} />
         </Pressable>
         <Text style={styles.headerTitle}>{recipe.name}</Text>
       </View>
@@ -63,12 +64,11 @@ const styles = StyleSheet.create({
   content: { padding: spacing.md, paddingBottom: spacing.xxl },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
   backBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 1, borderColor: colors.border,
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    borderWidth: 1.5, borderColor: colors.accent,
     alignItems: 'center', justifyContent: 'center',
   },
-  backArrow: { color: colors.textPrimary, fontSize: 20 },
   headerTitle: { fontSize: 20, color: colors.textPrimary, flex: 1 },
   desc: { fontSize: 14, lineHeight: 22, color: colors.textSecondary, marginBottom: spacing.lg },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.xl },

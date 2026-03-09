@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Card, Input, Button } from '../components';
-import { createRole } from '../services/rbac';
+import { createRole, ensureOrganizationForTeam } from '../services/rbac';
 import { colors, spacing, typography } from '../utils/theme';
 import type { Team } from '../types';
 import type { Role } from '../types/rbac';
@@ -12,7 +12,7 @@ type Props = { route: RouteProp<TeamsStackParamList, 'RoleCreation'> };
 
 export function RoleCreationScreen({ route }: Props) {
   const navigation = useNavigation();
-  const { team, organizationId } = route.params;
+  const { team, organizationId: paramOrgId } = route.params;
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [loading, setLoading] = useState(false);
@@ -26,12 +26,24 @@ export function RoleCreationScreen({ route }: Props) {
     setError('');
     setLoading(true);
     try {
+      let organizationId = paramOrgId;
+      if (!organizationId && team.owner_id) {
+        const org = await ensureOrganizationForTeam(team.id, team.name, team.owner_id);
+        organizationId = org.id;
+      }
+      if (!organizationId) {
+        setError('Organizasyon bilgisi bulunamadı. Lütfen ekip yönetiminden tekrar deneyin.');
+        setLoading(false);
+        return;
+      }
       const role = await createRole(organizationId, name.trim(), description.trim() || undefined);
       Alert.alert('Rol oluşturuldu', 'Şimdi seviye ekleyebilirsiniz.', [
         { text: 'Tamam', onPress: () => navigation.navigate('RoleLevel', { team, role }) },
       ]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Rol oluşturulamadı.');
+      const message = e instanceof Error ? e.message : 'Rol oluşturulamadı.';
+      setError(message);
+      Alert.alert('Rol oluşturulamadı', message);
     } finally {
       setLoading(false);
     }

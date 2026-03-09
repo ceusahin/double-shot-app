@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   KeyboardAvoidingView,
@@ -53,7 +54,7 @@ export function LoginScreen({ navigation }: Props) {
       >
         <View style={styles.header}>
           <View style={styles.logo}>
-            <Text style={{ fontSize: 40 }}>☕</Text>
+            <Image source={require('../../../assets/logo.png')} style={[styles.logoImage, { tintColor: colors.accent }]} resizeMode="contain" />
           </View>
           <Text style={styles.title}>
             Double<Text style={styles.titleAccent}>Shot</Text>
@@ -132,6 +133,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  logoImage: {
+    width: 52,
+    height: 52,
   },
   title: {
     ...typography.title,

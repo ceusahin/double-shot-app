@@ -23,17 +23,32 @@ export async function ensureOrganizationForTeam(
   name: string,
   ownerId: string
 ): Promise<Organization> {
-  const { data: team } = await supabase.from('teams').select('organization_id').eq('id', teamId).single();
-  if (team?.organization_id) {
+  const { data: team, error: teamFetchError } = await supabase
+    .from('teams')
+    .select('id, organization_id, owner_id')
+    .eq('id', teamId)
+    .single();
+  if (teamFetchError || !team) {
+    throw new Error(teamFetchError?.message ?? 'Takım bilgisi alınamadı.');
+  }
+  if (team.organization_id) {
     const org = await getOrganizationById(team.organization_id);
     if (org) return org;
   }
-  const { data: org, error } = await supabase
+  const { data: org, error: orgError } = await supabase
     .from('organizations')
     .insert({ name, owner_id: ownerId })
     .select()
     .single();
-  if (error) throw error;
-  await supabase.from('teams').update({ organization_id: org.id }).eq('id', teamId);
+  if (orgError) {
+    throw new Error(orgError.message ?? 'Organizasyon oluşturulamadı.');
+  }
+  const { error: updateError } = await supabase
+    .from('teams')
+    .update({ organization_id: org.id })
+    .eq('id', teamId);
+  if (updateError) {
+    throw new Error(updateError.message ?? 'Takım organizasyonla eşleştirilemedi. Ekip sahibi olarak tekrar deneyin.');
+  }
   return org as Organization;
 }

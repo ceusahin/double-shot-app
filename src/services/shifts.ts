@@ -170,6 +170,25 @@ export async function getActiveShiftLog(
   return data as { id: string; check_in_time: string };
 }
 
+/** Ekipte şu an mesaide olan (check-in yapıp check-out yapmamış) kullanıcılar. */
+export async function getTeamMembersOnShift(
+  teamId: string
+): Promise<{ user_id: string; check_in_time: string; user?: { id: string; name: string; surname: string } }[]> {
+  const { data, error } = await supabase
+    .from('shift_logs')
+    .select(`
+      user_id,
+      check_in_time,
+      user:users(id, name, surname)
+    `)
+    .eq('team_id', teamId)
+    .is('check_out_time', null)
+    .order('check_in_time', { ascending: false });
+
+  if (error) throw error;
+  return (data ?? []) as unknown as { user_id: string; check_in_time: string; user?: { id: string; name: string; surname: string } }[];
+}
+
 export async function checkIn(
   userId: string,
   teamId: string,

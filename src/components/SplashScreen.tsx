@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, Animated } from 'react-native';
-import { colors, typography } from '../utils/theme';
+import { View, Text, Image, StyleSheet, Animated } from 'react-native';
+import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
+
+const appLogo = require('../../assets/logo.png');
 
 interface SplashScreenProps {
   onComplete: () => void;
@@ -13,7 +15,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
     const timer = setTimeout(() => {
       Animated.timing(fadeOut, {
         toValue: 0,
-        duration: 500,
+        duration: TRANSITION_DURATION,
         useNativeDriver: true,
       }).start(() => onComplete());
     }, 3000);
@@ -24,9 +26,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
     <Animated.View style={[styles.container, { opacity: fadeOut }]}>
       <View style={styles.top} />
       <View style={styles.center}>
-        <View style={styles.logoBox}>
-          <Text style={styles.logoEmoji}>☕</Text>
-        </View>
+        <Image source={appLogo} style={[styles.logoImage, { tintColor: colors.accent }]} resizeMode="contain" />
         <Text style={styles.title}>
           Double<Text style={styles.titleAccent}>Shot</Text>
         </Text>
@@ -55,21 +55,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
-  logoBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 20,
-    backgroundColor: colors.accent,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: colors.accent,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 30,
-    elevation: 12,
-  },
-  logoEmoji: {
-    fontSize: 44,
+  logoImage: {
+    width: 88,
+    height: 88,
   },
   title: {
     fontSize: 36,

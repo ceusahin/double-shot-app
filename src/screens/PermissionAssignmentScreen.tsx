@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRoute, RouteProp } from '@react-navigation/native';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, Button } from '../components';
 import { listPermissions, getPermissionsForRoleLevel, setPermissionsForRoleLevel } from '../services/rbac';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { colors, spacing, typography } from '../utils/theme';
+import { getPermissionDisplayName } from '../utils/permissionLabels';
+import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
 import type { Team } from '../types';
 import type { Role, RoleLevel, Permission } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
@@ -22,14 +24,18 @@ export function PermissionAssignmentScreen({ route }: Props) {
     queryFn: listPermissions,
   });
 
-  const { data: assigned = [] } = useQuery({
+  const { data: assignedPermissions } = useQuery({
     queryKey: ['role-level-permissions', roleLevel.id],
     queryFn: () => getPermissionsForRoleLevel(roleLevel.id),
   });
 
+  const assigned = assignedPermissions ?? [];
+  const assignedIdsKey = assigned.map((p) => p.id).sort().join(',');
+
   useEffect(() => {
-    setSelectedIds(new Set(assigned.map((p) => p.id)));
-  }, [assigned]);
+    const list = assignedPermissions ?? [];
+    setSelectedIds(new Set(list.map((p) => p.id)));
+  }, [roleLevel.id, assignedIdsKey]);
 
   const toggle = (perm: Permission) => {
     setSelectedIds((prev) => {
@@ -55,14 +61,49 @@ export function PermissionAssignmentScreen({ route }: Props) {
     }
   };
 
+  const allSelected = allPermissions.length > 0 && selectedIds.size === allPermissions.length;
+  const noneSelected = selectedIds.size === 0;
+
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>{role.name} → {roleLevel.name}</Text>
-      <Text style={styles.subtitle}>Bu seviyeye atanacak yetkileri seçin (açıklama için dokunun)</Text>
+    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <Text style={styles.title}>{role.name} · {roleLevel.name}</Text>
+      <Text style={styles.subtitle}>Bu seviyeye atanacak yetkileri seçin</Text>
 
       <View style={styles.actions}>
-        <Button title="Tümünü seç" onPress={selectAll} variant="ghost" style={styles.smallBtn} />
-        <Button title="Temizle" onPress={clearAll} variant="ghost" style={styles.smallBtn} />
+        <Pressable
+          onPress={selectAll}
+          style={({ pressed }) => [
+            styles.actionChip,
+            allSelected && styles.actionChipActive,
+            pressed && styles.actionChipPressed,
+          ]}
+        >
+          <Ionicons
+            name="checkmark-done-circle"
+            size={20}
+            color={allSelected ? colors.accent : colors.textSecondary}
+          />
+          <Text style={[styles.actionChipText, allSelected && styles.actionChipTextActive]}>
+            Tümünü seç
+          </Text>
+        </Pressable>
+        <Pressable
+          onPress={clearAll}
+          style={({ pressed }) => [
+            styles.actionChip,
+            noneSelected && styles.actionChipActive,
+            pressed && styles.actionChipPressed,
+          ]}
+        >
+          <Ionicons
+            name="close-circle-outline"
+            size={20}
+            color={noneSelected ? colors.accent : colors.textSecondary}
+          />
+          <Text style={[styles.actionChipText, noneSelected && styles.actionChipTextActive]}>
+            Temizle
+          </Text>
+        </Pressable>
       </View>
 
       {allPermissions.map((perm) => (
@@ -72,12 +113,11 @@ export function PermissionAssignmentScreen({ route }: Props) {
           style={[styles.permCard, selectedIds.has(perm.id) && styles.permCardSelected]}
         >
           <View style={styles.permRow}>
-            <Text style={styles.permKey}>{perm.key}</Text>
-            <Text style={styles.permCheck}>{selectedIds.has(perm.id) ? '✓' : ''}</Text>
+            <Text style={styles.permLabel}>{getPermissionDisplayName(perm)}</Text>
+            {selectedIds.has(perm.id) ? (
+              <Ionicons name="checkmark-circle" size={24} color={colors.accent} />
+            ) : null}
           </View>
-          {perm.description ? (
-            <Text style={styles.permDesc}>{perm.description}</Text>
-          ) : null}
         </Card>
       ))}
 
@@ -89,15 +129,29 @@ export function PermissionAssignmentScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.md, paddingBottom: spacing.xxl },
-  title: { ...typography.title, color: colors.primary, marginBottom: spacing.xs },
+  title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.xs },
   subtitle: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.md },
-  actions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
-  smallBtn: { flex: 1 },
+  actions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  actionChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.glassBg,
+  },
+  actionChipActive: { borderColor: colors.accent, backgroundColor: colors.accent + '18' },
+  actionChipPressed: { opacity: 0.85 },
+  actionChipText: { ...typography.caption, fontFamily: fonts.medium, color: colors.textSecondary },
+  actionChipTextActive: { color: colors.accent, fontFamily: fonts.semibold },
   permCard: { marginBottom: spacing.sm },
-  permCardSelected: { borderWidth: 2, borderColor: colors.primary },
+  permCardSelected: { borderWidth: 2, borderColor: colors.accent },
   permRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  permKey: { ...typography.body, fontWeight: '600', color: colors.text },
-  permCheck: { ...typography.subtitle, color: colors.primary },
-  permDesc: { ...typography.small, color: colors.textMuted, marginTop: spacing.xs },
+  permLabel: { ...typography.body, fontFamily: fonts.medium, color: colors.textPrimary, flex: 1 },
   saveBtn: { marginTop: spacing.lg },
 });

@@ -4,7 +4,7 @@ import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Card, Input, Button } from '../components';
 import { listRoleLevels, createRoleLevel, deleteRoleLevel } from '../services/rbac';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { colors, spacing, typography } from '../utils/theme';
+import { colors, spacing, typography, fonts } from '../utils/theme';
 import type { Team } from '../types';
 import type { Role, RoleLevel } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
@@ -100,7 +100,12 @@ const styles = StyleSheet.create({
   sectionTitle: { ...typography.subtitle, color: colors.accent, marginBottom: spacing.md },
   levelCard: { marginBottom: spacing.sm },
   levelRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: spacing.sm },
-  levelName: { ...typography.body, fontWeight: '600', flex: 1 },
+  levelName: {
+    ...typography.body,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    flex: 1,
+  },
   smallBtn: { marginTop: 0 },
   addRow: { marginTop: spacing.lg },
 });
