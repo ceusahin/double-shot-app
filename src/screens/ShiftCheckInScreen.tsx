@@ -74,7 +74,6 @@ export function ShiftCheckInScreen({ route }: Props) {
     if (!user || !location || !canCheckIn) return;
     setActionLoading(true);
     try {
-      await requestPermissionAndGetLocation();
       const coords = await requestPermissionAndGetLocation();
       if (!coords) return;
       const d = distanceToStore(team.store_latitude!, team.store_longitude!);

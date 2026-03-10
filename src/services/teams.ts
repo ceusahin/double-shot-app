@@ -113,10 +113,32 @@ export async function getMyTeams(userId: string): Promise<(Team & { role: string
     .eq('user_id', userId);
 
   if (error) throw error;
-  return (data ?? []).map((row: { role: string; teams: Team }) => ({
-    ...row.teams,
-    role: row.role,
-  })) as (Team & { role: string })[];
+  return (data ?? [])
+    .filter((row: { teams?: Team }) => row.teams?.is_active !== false)
+    .map((row: { role: string; teams: Team }) => ({
+      ...row.teams,
+      role: row.role,
+    })) as (Team & { role: string })[];
+}
+
+/** Ekip adını güncelle (owner veya MANAGER). */
+export async function updateTeamName(teamId: string, name: string): Promise<void> {
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error('Ekip adı boş olamaz.');
+  const { error } = await supabase
+    .from('teams')
+    .update({ name: trimmed })
+    .eq('id', teamId);
+  if (error) throw error;
+}
+
+/** Ekip kapat: is_active = false (owner veya MANAGER). Kapalı ekipler listelenmez. */
+export async function closeTeam(teamId: string): Promise<void> {
+  const { error } = await supabase
+    .from('teams')
+    .update({ is_active: false })
+    .eq('id', teamId);
+  if (error) throw error;
 }
 
 export async function getTeamMembers(teamId: string): Promise<TeamMember[]> {
