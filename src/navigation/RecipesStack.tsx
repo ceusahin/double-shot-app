@@ -3,6 +3,8 @@ import { Easing } from 'react-native';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
 import { RecipesScreen } from '../screens/RecipesScreen';
 import { RecipeDetailScreen } from '../screens/RecipeDetailScreen';
+import { TeamRecipeDetailScreen } from '../screens/TeamRecipeDetailScreen';
+import { TeamRecipeEditorScreen } from '../screens/TeamRecipeEditorScreen';
 import { colors, TRANSITION_DURATION } from '../utils/theme';
 
 const transitionSpec = {
@@ -19,6 +21,8 @@ const transitionSpec = {
 export type RecipesStackParamList = {
   RecipesList: undefined;
   RecipeDetail: { id: string };
+  TeamRecipeDetail: { recipeId: string; teamId: string; canEdit: boolean };
+  TeamRecipeEditor: { teamId: string; categoryId: string; recipeId?: string };
 };
 
 const Stack = createStackNavigator<RecipesStackParamList>();
@@ -36,6 +40,24 @@ export function RecipesStack() {
       <Stack.Screen
         name="RecipeDetail"
         component={RecipeDetailScreen}
+        options={{
+          cardStyleInterpolator: CardStyleInterpolators.forVerticalIOS,
+          gestureEnabled: true,
+          transitionSpec,
+        }}
+      />
+      <Stack.Screen
+        name="TeamRecipeDetail"
+        component={TeamRecipeDetailScreen}
+        options={{
+          cardStyleInterpolator: CardStyleInterpolators.forVerticalIOS,
+          gestureEnabled: true,
+          transitionSpec,
+        }}
+      />
+      <Stack.Screen
+        name="TeamRecipeEditor"
+        component={TeamRecipeEditorScreen}
         options={{
           cardStyleInterpolator: CardStyleInterpolators.forVerticalIOS,
           gestureEnabled: true,

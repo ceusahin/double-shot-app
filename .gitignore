@@ -31,8 +31,23 @@ yarn-error.*
 .DS_Store
 *.pem
 
-# local env files
-.env*.local
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# local env files (never commit secrets)
+.env*
+!.env.example
+
+# logs
+*.log
+
+# test coverage (when added)
+coverage/
+
+# IDE (optional)
+.idea/
 
 # typescript
 *.tsbuildinfo

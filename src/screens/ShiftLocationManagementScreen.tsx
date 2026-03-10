@@ -59,7 +59,6 @@ export function ShiftLocationManagementScreen({ route }: Props) {
   /** Harita açık mı; açıldığında kullanılan ilk bölge (konum veya İstanbul) */
   const [mapVisible, setMapVisible] = useState(false);
   const [mapOpenRegion, setMapOpenRegion] = useState<Region | null>(null);
-  const [mapOpening, setMapOpening] = useState(false);
   const [radiusSaving, setRadiusSaving] = useState(false);
 
   /** Sorgudan güncel takım gelince yarıçapı senkronize et (ekrana dönünce doğru değer görünsün) */
@@ -74,30 +73,21 @@ export function ShiftLocationManagementScreen({ route }: Props) {
     team.store_longitude != null &&
     team.store_radius != null;
 
-  /** "Konumu haritadan seç"e basıldığında: konum açıksa oraya, değilse İstanbul'a odaklan */
-  const openMapPicker = useCallback(async () => {
+  /** "Konumu haritadan seç"e basıldığında: haritayı hemen aç (konum isteği takılırsa açılmama sorunu olmasın) */
+  const openMapPicker = useCallback(() => {
     if (!isOwner) return;
-    setMapOpening(true);
-    try {
-      const coords = await requestPermissionAndGetLocation();
-      if (coords) {
-        setMapOpenRegion({
-          latitude: coords.lat,
-          longitude: coords.lng,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
-        });
-      } else {
-        setMapOpenRegion(ISTANBUL_REGION);
-      }
-      setMapVisible(true);
-    } catch {
+    if (hasLocation && team.store_latitude != null && team.store_longitude != null) {
+      setMapOpenRegion({
+        latitude: team.store_latitude,
+        longitude: team.store_longitude,
+        latitudeDelta: 0.005,
+        longitudeDelta: 0.005,
+      });
+    } else {
       setMapOpenRegion(ISTANBUL_REGION);
-      setMapVisible(true);
-    } finally {
-      setMapOpening(false);
     }
-  }, [isOwner, requestPermissionAndGetLocation]);
+    setMapVisible(true);
+  }, [isOwner, hasLocation, team.store_latitude, team.store_longitude]);
 
   /** Harita kapalıyken gösterilecek initialRegion yok; açıkken mapOpenRegion veya seçilen nokta */
   const mapInitialRegion = useMemo((): Region => {
@@ -212,22 +202,14 @@ export function ShiftLocationManagementScreen({ route }: Props) {
               <>
                 <Pressable
                   onPress={openMapPicker}
-                  disabled={mapOpening}
                   style={({ pressed }) => [
                     styles.actionBtn,
                     styles.actionBtnPrimary,
-                    (pressed || mapOpening) && styles.actionBtnPressed,
-                    mapOpening && styles.actionBtnDisabled,
+                    pressed && styles.actionBtnPressed,
                   ]}
                 >
-                  {mapOpening ? (
-                    <Text style={styles.actionBtnTextPrimary}>Açılıyor…</Text>
-                  ) : (
-                    <>
-                      <Ionicons name="map-outline" size={22} color={colors.black} />
-                      <Text style={styles.actionBtnTextPrimary}>Konumu haritadan seç</Text>
-                    </>
-                  )}
+                  <Ionicons name="map-outline" size={22} color={colors.black} />
+                  <Text style={styles.actionBtnTextPrimary}>Konumu haritadan seç</Text>
                 </Pressable>
                 <Pressable
                   onPress={handleUseCurrentLocation}

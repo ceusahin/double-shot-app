@@ -10,7 +10,9 @@ export function useLocation() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  /** Tam konum al (vardiya başlatırken kullan). */
+  const LOCATION_TIMEOUT_MS = 12_000;
+
+  /** Tam konum al (vardiya başlatırken kullan). Önce son bilinen konumu dene (hızlı), yoksa GPS ile al, en fazla 12 sn bekle. */
   const requestPermissionAndGetLocation = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -20,9 +22,32 @@ export function useLocation() {
         setError('Konum izni verilmedi.');
         return null;
       }
-      const loc = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      const lastKnown = await Location.getLastKnownPositionAsync();
+      if (lastKnown) {
+        const coords = {
+          lat: lastKnown.coords.latitude,
+          lng: lastKnown.coords.longitude,
+        };
+        setLocation(coords);
+        const fresh = await Promise.race([
+          Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+          new Promise<null>((_, reject) =>
+            setTimeout(() => reject(new Error('timeout')), LOCATION_TIMEOUT_MS)
+          ),
+        ]).catch(() => null);
+        if (fresh) {
+          const updated = { lat: fresh.coords.latitude, lng: fresh.coords.longitude };
+          setLocation(updated);
+          return updated;
+        }
+        return coords;
+      }
+      const loc = await Promise.race([
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        new Promise<Location.LocationObject>((_, reject) =>
+          setTimeout(() => reject(new Error('Konum zaman aşımı. Açık alanda veya pencerenin yakınında tekrar deneyin.')), LOCATION_TIMEOUT_MS)
+        ),
+      ]);
       const coords = {
         lat: loc.coords.latitude,
         lng: loc.coords.longitude,

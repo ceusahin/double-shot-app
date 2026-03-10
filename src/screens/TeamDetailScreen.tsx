@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Card, Button, LeaderboardItem, TabBar } from '../components';
+import { Card, Button, TabBar, Avatar } from '../components';
 import { useNotificationModal } from '../context/NotificationModalContext';
 import { useAuthStore } from '../store/authStore';
 import { getTeamMembers, createTeamInviteLink, removeMember } from '../services/teams';
@@ -187,10 +187,6 @@ export function TeamDetailScreen({ route }: Props) {
     [shifts, selectedWeekDays]
   );
 
-  const sortedByXp = [...members]
-    .filter((m) => m.user)
-    .sort((a, b) => (b.user?.experience_points ?? 0) - (a.user?.experience_points ?? 0));
-
   return (
     <ScrollView
       style={styles.container}
@@ -218,31 +214,75 @@ export function TeamDetailScreen({ route }: Props) {
           </Pressable>
 
           {isManager && (
-            <Card style={styles.card}>
-              <Text style={styles.cardTitle}>Yönetici</Text>
-              <Button title="Ekip Yönetimi" onPress={() => navigation.navigate('TeamManagement', { team })} variant="outline" style={styles.btn} />
-              <Button title="Vardiya Yönetimi" onPress={() => navigation.navigate('ShiftManagement', { team })} variant="outline" style={styles.btn} />
-              <Button title="Puantaj Yönetimi" onPress={() => navigation.navigate('Timesheet', { team })} variant="outline" style={styles.btn} />
-              <Button title="Vardiya Konum Yönetimi" onPress={() => navigation.navigate('ShiftLocationManagement', { team })} variant="outline" style={styles.btn} />
-            </Card>
+            <View style={styles.managerSection}>
+              <Text style={styles.managerSectionTitle}>Yönetici</Text>
+              <View style={styles.managerGrid}>
+                <Pressable
+                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
+                  onPress={() => navigation.navigate('TeamManagement', { team })}
+                >
+                  <View style={styles.managerCardIconWrap}>
+                    <Ionicons name="people-outline" size={26} color={colors.accent} />
+                  </View>
+                  <Text style={styles.managerCardTitle}>Ekip Yönetimi</Text>
+                  <Text style={styles.managerCardSubtitle}>Üyeler ve roller</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
+                  onPress={() => navigation.navigate('ShiftManagement', { team })}
+                >
+                  <View style={styles.managerCardIconWrap}>
+                    <Ionicons name="calendar-outline" size={26} color={colors.accent} />
+                  </View>
+                  <Text style={styles.managerCardTitle}>Vardiya Yönetimi</Text>
+                  <Text style={styles.managerCardSubtitle}>Haftalık plan</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
+                  onPress={() => navigation.navigate('Timesheet', { team })}
+                >
+                  <View style={styles.managerCardIconWrap}>
+                    <Ionicons name="document-text-outline" size={26} color={colors.accent} />
+                  </View>
+                  <Text style={styles.managerCardTitle}>Puantaj Yönetimi</Text>
+                  <Text style={styles.managerCardSubtitle}>Giriş/çıkış kayıtları</Text>
+                </Pressable>
+                <Pressable
+                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
+                  onPress={() => navigation.navigate('ShiftLocationManagement', { team })}
+                >
+                  <View style={styles.managerCardIconWrap}>
+                    <Ionicons name="location-outline" size={26} color={colors.accent} />
+                  </View>
+                  <Text style={styles.managerCardTitle}>Vardiya Konumu</Text>
+                  <Text style={styles.managerCardSubtitle}>Mağaza alanı</Text>
+                </Pressable>
+              </View>
+            </View>
           )}
 
-          <Text style={styles.sectionTitle}>Liderlik tablosu</Text>
-          {sortedByXp.length === 0 ? (
+          <Text style={styles.sectionTitle}>Ekip listesi</Text>
+          {members.length === 0 ? (
             <Card><Text style={styles.placeholder}>Henüz üye yok.</Text></Card>
           ) : (
-            sortedByXp.slice(0, 10).map((m, i) =>
-              m.user ? (
-                <LeaderboardItem
+            members.map((m) => {
+              const displayName = m.user ? [m.user.name, m.user.surname].filter(Boolean).join(' ') || m.user.email || 'Üye' : 'Üye';
+              const roleLabel = m.role === 'MANAGER' ? 'Yönetici' : 'Barista';
+              return (
+                <Pressable
                   key={m.id}
-                  rank={i + 1}
-                  user={m.user}
-                  score={m.user.experience_points}
-                  scoreLabel="XP"
-                  onPress={() => navigation.navigate('MemberProfile', { user: m.user! })}
-                />
-              ) : null
-            )
+                  style={({ pressed }) => [styles.memberRow, pressed && styles.memberRowPressed]}
+                  onPress={() => m.user && navigation.navigate('MemberProfile', { user: m.user })}
+                >
+                  <Avatar source={m.user?.profile_photo} name={displayName} size={44} />
+                  <View style={styles.memberInfo}>
+                    <Text style={styles.memberName} numberOfLines={1}>{displayName}</Text>
+                    <Text style={styles.memberRole}>{roleLabel}</Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
+                </Pressable>
+              );
+            })
           )}
         </>
       )}
@@ -316,9 +356,16 @@ export function TeamDetailScreen({ route }: Props) {
                       <View key={s.id} style={styles.shiftRow}>
                         <View style={styles.shiftRowDot} />
                         <View style={styles.shiftRowContent}>
-                          <Text style={styles.shiftRowName}>
-                            {s.user ? `${s.user.name ?? ''} ${s.user.surname ?? ''}`.trim() || 'Üye' : 'Üye'}
-                          </Text>
+                          <View style={styles.shiftRowNameRow}>
+                            <Text style={styles.shiftRowName}>
+                              {s.user ? `${s.user.name ?? ''} ${s.user.surname ?? ''}`.trim() || 'Üye' : 'Üye'}
+                            </Text>
+                            {s.role ? (
+                              <View style={styles.shiftRoleBadge}>
+                                <Text style={styles.shiftRoleBadgeText}>{s.role}</Text>
+                              </View>
+                            ) : null}
+                          </View>
                           <Text style={styles.shiftRowTime}>
                             {formatShiftTime(s.start_time)} – {formatShiftTime(s.end_time)}
                           </Text>
@@ -399,6 +446,56 @@ const styles = StyleSheet.create({
   card: { marginBottom: spacing.lg },
   cardTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.sm },
   btn: { marginTop: spacing.sm },
+  managerSection: { marginBottom: spacing.lg },
+  managerSectionTitle: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
+  managerGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
+  managerCard: {
+    width: '48%',
+    minWidth: 0,
+    paddingVertical: spacing.lg,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.accent + '40',
+    backgroundColor: colors.accent + '0C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  managerCardPressed: { opacity: 0.88 },
+  managerCardIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.accent + '18',
+    marginBottom: spacing.sm,
+  },
+  managerCardTitle: {
+    fontSize: 15,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 2,
+  },
+  managerCardSubtitle: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
   shiftCheckInCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -424,6 +521,31 @@ const styles = StyleSheet.create({
   shiftCheckInSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.md },
   placeholder: { ...typography.body, color: colors.textSecondary },
+  memberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.md,
+  },
+  memberRowPressed: { opacity: 0.9 },
+  memberInfo: { flex: 1, minWidth: 0 },
+  memberName: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+  },
+  memberRole: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.accent,
+    marginTop: 2,
+  },
   weekNavRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -529,11 +651,32 @@ const styles = StyleSheet.create({
     marginLeft: -spacing.sm - 3,
     marginRight: spacing.sm,
   },
-  shiftRowContent: { flex: 1 },
+  shiftRowContent: { flex: 1, minWidth: 0 },
+  shiftRowNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+    marginBottom: 2,
+  },
   shiftRowName: {
     fontSize: 14,
     fontFamily: fonts.semibold,
     color: colors.textPrimary,
+  },
+  shiftRoleBadge: {
+    paddingVertical: 2,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.accent + '18',
+    borderWidth: 1,
+    borderColor: colors.accent + '40',
+  },
+  shiftRoleBadgeText: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: colors.accent,
+    textTransform: 'capitalize',
   },
   shiftRowTime: {
     fontSize: 13,

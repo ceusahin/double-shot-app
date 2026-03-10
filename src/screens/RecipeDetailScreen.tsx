@@ -79,6 +79,7 @@ const styles = StyleSheet.create({
   stepsTitle: { ...typography.subtitle, marginBottom: spacing.md, color: colors.textPrimary },
   stepRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.md,
     backgroundColor: colors.surface,
     padding: spacing.md,

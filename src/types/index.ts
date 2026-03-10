@@ -33,6 +33,7 @@ export interface Team {
   store_longitude: number | null;
   store_radius: number | null; // metre
   organization_id?: string | null;
+  is_active?: boolean;
   created_at?: string;
 }
 
@@ -153,6 +154,30 @@ export interface Recipe {
   description: string | null;
   ingredients: string[];
   steps: string[];
+}
+
+/** Ekip tarif kategorisi (Mutfak, Bar vb.) */
+export interface TeamRecipeCategory {
+  id: string;
+  team_id: string;
+  name: string;
+  sort_order: number;
+  created_at?: string;
+}
+
+/** Ekip tarifi; kategoriye bağlı, malzemeler, adımlar ve isteğe bağlı fotoğraf */
+export interface TeamRecipe {
+  id: string;
+  team_id: string;
+  category_id: string;
+  name: string;
+  description: string | null;
+  ingredients: string[];
+  steps: string[];
+  image_url: string | null;
+  sort_order: number;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface PushTokenRecord {
