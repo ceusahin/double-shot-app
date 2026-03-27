@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -28,7 +28,10 @@ export function HomeScreen() {
     },
     enabled: !!user?.id,
   });
-  const { data: roleSummaries = [] } = useQuery({
+  const {
+    data: roleData,
+    isPending: rolesPending,
+  } = useQuery({
     queryKey: ['my-roles', user?.id],
     queryFn: () => {
       const uid = useAuthStore.getState().user?.id;
@@ -37,6 +40,7 @@ export function HomeScreen() {
     },
     enabled: !!user?.id,
   });
+  const roleSummaries = roleData ?? [];
   const { data: todayShifts = [] } = useQuery({
     queryKey: ['my-shifts-today', user?.id],
     queryFn: () => {
@@ -49,6 +53,15 @@ export function HomeScreen() {
 
   const isOwnerOnly = teams.length === 0 || teams.every((t) => t.owner_id === user?.id);
   const currentRole = roleSummaries[0];
+  const roleBlockLoading = !!user?.id && rolesPending && roleSummaries.length === 0;
+  /** Ekip üyeliği (BARISTA/MANAGER); RBAC özeti gecikirse anında gösterilir. */
+  const roleLabelFromMembership = React.useMemo(() => {
+    if (!user?.id || teams.length === 0) return null;
+    const t = teams.find((x) => x.owner_id !== user.id) ?? teams[0];
+    const r = t.role;
+    if (!r) return null;
+    return r === 'MANAGER' ? 'Yönetici' : 'Barista';
+  }, [teams, user?.id]);
   const teamById = React.useMemo(() => {
     const map: Record<string, string> = {};
     teams.forEach((t) => { map[t.id] = t.name; });
@@ -59,7 +72,7 @@ export function HomeScreen() {
     new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 
   const goToRecipes = () => navigation.navigate('Recipes');
-  const goToTraining = () => navigation.navigate('Training');
+  const goToOperations = () => navigation.navigate('Training');
   const goToEquipment = () => parentNav?.navigate('Equipment');
   const goToTeam = (teamId: string) => {
     const team = teams.find((t) => t.id === teamId);
@@ -84,10 +97,15 @@ export function HomeScreen() {
               <View style={styles.roleBadge}>
                 <Text style={styles.roleName}>{currentRole.roleName}</Text>
               </View>
-              <View style={styles.levelPill}>
-                <Text style={styles.levelPillText}>{currentRole.roleLevelName}</Text>
+            </View>
+          ) : roleBlockLoading && roleLabelFromMembership ? (
+            <View style={styles.roleRow}>
+              <View style={styles.roleBadge}>
+                <Text style={styles.roleName}>{roleLabelFromMembership}</Text>
               </View>
             </View>
+          ) : roleBlockLoading ? (
+            <ActivityIndicator size="small" color={colors.accent} style={styles.roleLoading} />
           ) : (
             <Text style={styles.roleEmpty}>Henüz rol atanmadı</Text>
           )}
@@ -100,9 +118,9 @@ export function HomeScreen() {
           <Text style={styles.cardTitle}>Tarifler</Text>
           <Text style={styles.placeholder}>Global tarif rehberi</Text>
         </Card>
-        <Card style={styles.quickCard} onPress={goToTraining}>
-          <Text style={styles.cardTitle}>Eğitim</Text>
-          <Text style={styles.placeholder}>Akademi modülü</Text>
+        <Card style={styles.quickCard} onPress={goToOperations}>
+          <Text style={styles.cardTitle}>Operasyon</Text>
+          <Text style={styles.placeholder}>Bakım takvimi & açılış/kapanış</Text>
         </Card>
       </View>
 
@@ -152,14 +170,13 @@ export function HomeScreen() {
         ))
       )}
 
-      <Text style={styles.sectionTitle}>Eğitimler</Text>
-      <TrainingCard
-        title="Espresso Temelleri"
-        description="Espresso makinesi ve çekim ayarları"
-        progress={0}
-        onPress={() => {}}
-      />
-      <View style={styles.spacer} />
+      <Text style={styles.sectionTitle}>Bugünkü operasyonlar</Text>
+      <Card style={styles.card}>
+        <Text style={styles.placeholder}>
+          Açılış ve kapanış checklist\'inizi ve makine bakım görevlerinizi
+          {' '}Operasyon sekmesinden güncelleyebilirsiniz.
+        </Text>
+      </Card>
     </ScrollView>
   );
 }
@@ -219,21 +236,14 @@ const styles = StyleSheet.create({
     ...typography.subtitle,
     color: colors.textPrimary,
   },
-  levelPill: {
-    backgroundColor: 'rgba(212, 175, 55, 0.18)',
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.sm,
-    borderRadius: borderRadius.full,
-  },
-  levelPillText: {
-    ...typography.small,
-    fontFamily: fonts.semibold,
-    color: colors.accent,
-  },
   roleEmpty: {
     ...typography.caption,
     color: colors.textSecondary,
     fontStyle: 'italic',
+  },
+  roleLoading: {
+    alignSelf: 'flex-start',
+    marginVertical: spacing.xs,
   },
   card: {
     marginBottom: spacing.lg,

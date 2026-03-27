@@ -1,6 +1,10 @@
 import { useEffect, useCallback } from 'react';
 import { supabase } from '../services/supabase';
 import { getProfile, createProfile } from '../services/auth';
+import { getMyTeams } from '../services/teams';
+import { getMyRolesSummary } from '../services/rbac';
+import { queryClient } from '../lib/queryClient';
+import { discardPersistedSessionIfRememberMeOff } from '../auth/loginSessionPrefs';
 import { useAuthStore } from '../store/authStore';
 import type { UserProfile } from '../types';
 import type { Session } from '@supabase/supabase-js';
@@ -25,6 +29,12 @@ function mapAuthUserToProfile(session: Session): {
 export function useAuth() {
   const { user, setUser, isLoading, setLoading } = useAuthStore();
 
+  const clearCorruptedLocalSession = useCallback(async () => {
+    // Sunucuda zaten geçersiz olan refresh token için ağ çağrısı yapmak yerine
+    // yerel oturumu temizleyip uygulamayı tutarlı auth durumuna alır.
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+  }, []);
+
   const loadProfile = useCallback(async (session: Session | null) => {
     if (!session) {
       setUser(null);
@@ -42,6 +52,18 @@ export function useAuth() {
           email: meta.email,
         });
       }
+      if (profile) {
+        await Promise.all([
+          queryClient.prefetchQuery({
+            queryKey: ['my-roles', profile.id],
+            queryFn: () => getMyRolesSummary(profile.id),
+          }),
+          queryClient.prefetchQuery({
+            queryKey: ['my-teams', profile.id],
+            queryFn: () => getMyTeams(profile.id),
+          }),
+        ]).catch(() => {});
+      }
       setUser(profile ?? null);
     } catch {
       setUser(null);
@@ -50,27 +72,56 @@ export function useAuth() {
 
   useEffect(() => {
     setLoading(true);
-    supabase.auth.getSession().then(({ data }) => {
-      const session = data?.session;
-      if (session) {
-        loadProfile(session).finally(() => setLoading(false));
-      } else {
+    supabase.auth
+      .getSession()
+      .then(async ({ data, error }) => {
+        if (error) {
+          const msg = (error.message ?? '').toLowerCase();
+          if (msg.includes('invalid refresh token') || msg.includes('refresh token not found')) {
+            await clearCorruptedLocalSession();
+          }
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+        let session = data?.session ?? null;
+        session = await discardPersistedSessionIfRememberMeOff(session);
+        if (session) {
+          await loadProfile(session);
+        } else {
+          setUser(null);
+        }
+        setLoading(false);
+      })
+      .catch(async (e) => {
+        const msg = e instanceof Error ? e.message.toLowerCase() : '';
+        if (msg.includes('invalid refresh token') || msg.includes('refresh token not found')) {
+          await clearCorruptedLocalSession();
+        }
         setUser(null);
         setLoading(false);
-      }
-    });
+      });
 
-    const { data: authData } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) {
-        loadProfile(session);
-      } else {
+    const { data: authData } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'INITIAL_SESSION') {
+        return;
+      }
+      if (event === 'SIGNED_IN' && session) {
+        await loadProfile(session);
+        return;
+      }
+      if (event === 'SIGNED_OUT') {
         setUser(null);
+        return;
+      }
+      if (event === 'TOKEN_REFRESHED' && session) {
+        await loadProfile(session);
       }
     });
     const subscription = authData?.subscription;
 
-    return () => subscription?.unsubscribe();
-  }, [loadProfile, setUser, setLoading]);
+    return () => subscription.unsubscribe();
+  }, [clearCorruptedLocalSession, loadProfile, setUser, setLoading]);
 
   return { user, isLoading, isAuthenticated: !!user };
 }

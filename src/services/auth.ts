@@ -80,13 +80,46 @@ export async function updatePassword(currentPassword: string, newPassword: strin
 
 const AVATARS_BUCKET = 'avatars';
 
-/** Seçilen fotoğrafı Storage'a yükleyip profil fotoğrafı URL'ini günceller. base64 verilirse React Native ağına gerek kalmaz. */
+function imageExtensionFromUri(uri: string): string {
+  const pathOnly = uri.split('?')[0].split('#')[0];
+  const raw = pathOnly.split('.').pop()?.toLowerCase() ?? '';
+  if (raw === 'jpeg' || raw === 'jpg') return 'jpg';
+  if (raw === 'png' || raw === 'webp' || raw === 'gif') return raw;
+  return 'jpg';
+}
+
+/** RN fetch Blob'unda arrayBuffer() yok; Response.arrayBuffer veya XHR kullan. */
+async function readLocalImageUriAsArrayBuffer(uri: string): Promise<ArrayBuffer> {
+  const response = await fetch(uri);
+  if (!response.ok) {
+    throw new Error(`Fotoğraf okunamadı (${response.status})`);
+  }
+  if (typeof response.arrayBuffer === 'function') {
+    return response.arrayBuffer();
+  }
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', uri);
+    xhr.responseType = 'arraybuffer';
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300 && xhr.response) {
+        resolve(xhr.response as ArrayBuffer);
+      } else {
+        reject(new Error('Fotoğraf okunamadı'));
+      }
+    };
+    xhr.onerror = () => reject(new Error('Fotoğraf okunamadı'));
+    xhr.send();
+  });
+}
+
+/** Seçilen fotoğrafı Storage'a yükleyip profil fotoğrafı URL'ini günceller. Büyük görseller için base64 kullanmayın (OOM riski); URI + küçük dosya tercih edin. */
 export async function uploadProfilePhoto(
   userId: string,
   imageUri: string,
   base64?: string | null
 ): Promise<string> {
-  const ext = imageUri.split('.').pop()?.toLowerCase() || 'jpg';
+  const ext = imageExtensionFromUri(imageUri);
   const path = `${userId}.${ext}`;
   const contentType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'gif' ? 'image/gif' : 'image/jpeg';
 
@@ -95,9 +128,7 @@ export async function uploadProfilePhoto(
     const { decode } = await import('base64-arraybuffer');
     body = decode(base64);
   } else {
-    const response = await fetch(imageUri);
-    const blob = await response.blob();
-    body = await blob.arrayBuffer();
+    body = await readLocalImageUriAsArrayBuffer(imageUri);
   }
 
   const { error: uploadError } = await supabase.storage
@@ -110,7 +141,10 @@ export async function uploadProfilePhoto(
   }
 
   const { data: urlData } = supabase.storage.from(AVATARS_BUCKET).getPublicUrl(path);
-  const publicUrl = urlData.publicUrl;
+  const base = urlData.publicUrl;
+  // Aynı dosya yolu + aynı URL ile RN/HTTP önbelleği eski görseli göstermeye devam eder; her yüklemede benzersiz sorgu ekle.
+  const sep = base.includes('?') ? '&' : '?';
+  const publicUrl = `${base}${sep}v=${Date.now()}`;
   await updateProfile(userId, { profile_photo: publicUrl });
   return publicUrl;
 }

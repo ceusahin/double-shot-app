@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator, Modal, Alert } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, Input } from '../components';
@@ -33,6 +33,14 @@ export function TeamsScreen() {
     },
     enabled: !!userId,
   });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (userId) {
+        queryClient.invalidateQueries({ queryKey: ['my-teams', userId] });
+      }
+    }, [userId, queryClient])
+  );
 
   const [editTeam, setEditTeam] = useState<TeamWithRole | null>(null);
   const [editName, setEditName] = useState('');
@@ -132,7 +140,7 @@ export function TeamsScreen() {
             </Pressable>
             <Pressable
               style={({ pressed }) => (pressed ? [styles.actionCard, styles.actionCardCreate, styles.actionCardPressed] : [styles.actionCard, styles.actionCardCreate])}
-              onPress={() => navigation.navigate('CreateTeam')}
+              onPress={() => navigation.navigate('CreateTeamPlanPicker')}
             >
               <View style={[styles.actionIconWrap, styles.actionIconWrapPrimary]}>
                 <Ionicons name="add-circle-outline" size={26} color={colors.bgDark} />
@@ -181,7 +189,7 @@ export function TeamsScreen() {
               </Pressable>
               <Pressable
                 style={({ pressed }) => (pressed ? [styles.actionCard, styles.actionCardCreate, styles.actionCardPressed] : [styles.actionCard, styles.actionCardCreate])}
-                onPress={() => navigation.navigate('CreateTeam')}
+                onPress={() => navigation.navigate('CreateTeamPlanPicker')}
               >
                 <View style={[styles.actionIconWrap, styles.actionIconWrapPrimary]}>
                   <Ionicons name="add-circle-outline" size={24} color={colors.bgDark} />

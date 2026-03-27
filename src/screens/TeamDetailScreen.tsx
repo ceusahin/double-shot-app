@@ -1,20 +1,33 @@
-import React, { useState, useLayoutEffect, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal, Share, Alert } from 'react-native';
 import * as Clipboard from 'expo-clipboard';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, TabBar, Avatar } from '../components';
 import { useNotificationModal } from '../context/NotificationModalContext';
 import { useAuthStore } from '../store/authStore';
-import { getTeamMembers, createTeamInviteLink, removeMember } from '../services/teams';
+import { listMembersWithRoles } from '../services/rbac';
+import { supabase } from '../services/supabase';
+import { getTeamMembers, createTeamInviteLink, removeMember, getPendingJoinRequestsCountForTeam } from '../services/teams';
+import { listTeamMemberFeaturePermissions } from '../services/memberPermissions';
+import { TEAM_FEATURE_CARDS } from '../constants/memberFeaturePermissions';
+import { navigationRef } from '../navigation/navigationRef';
 import { getTeamShifts } from '../services/shifts';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { subscriptionDaysRemaining } from '../utils/subscriptionPeriod';
 import type { Team, Shift } from '../types';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 const WEEKDAY_LABELS = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+
+function rbacRoleDisplayName(
+  memberRoles: { role?: { name?: string } }[] | undefined
+): string | null {
+  const name = memberRoles?.[0]?.role?.name?.trim();
+  return name || null;
+}
 
 function getDaysForWeek(mondayOfWeek: Date): Date[] {
   const year = mondayOfWeek.getFullYear();
@@ -81,6 +94,51 @@ function getCurrentWeekMonday(): Date {
   return monday;
 }
 
+function TeamSubscriptionBanner({ teamName, endsAtIso }: { teamName: string; endsAtIso: string }) {
+  const daysLeft = subscriptionDaysRemaining(endsAtIso);
+  const endLabel = new Date(endsAtIso).toLocaleDateString('tr-TR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  const expired = daysLeft !== null && daysLeft < 0;
+  const urgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 10;
+
+  return (
+    <View
+      style={[
+        styles.subBanner,
+        urgent && styles.subBannerUrgent,
+        expired && styles.subBannerExpired,
+      ]}
+    >
+      <Ionicons
+        name={expired ? 'alert-circle' : 'time-outline'}
+        size={22}
+        color={expired ? colors.error : urgent ? colors.accent : colors.textSecondary}
+      />
+      <View style={styles.subBannerTextWrap}>
+        <Text style={styles.subBannerTitle}>Paket süresi</Text>
+        {expired ? (
+          <Text style={styles.subBannerBody}>
+            "{teamName}" paket süresi {endLabel} tarihinde sona erdi. Yenileme için destek ile iletişime geçin.
+          </Text>
+        ) : urgent ? (
+          <Text style={styles.subBannerBody}>
+            Aboneliğinize yaklaşık <Text style={styles.subBannerStrong}>{daysLeft} gün</Text> kaldı (bitiş{' '}
+            {endLabel}). Yakında bir bildirim de alacaksınız.
+          </Text>
+        ) : (
+          <Text style={styles.subBannerBody}>
+            Bitiş tarihi: <Text style={styles.subBannerStrong}>{endLabel}</Text>
+            {daysLeft !== null ? ` · ${daysLeft} gün kaldı` : null}
+          </Text>
+        )}
+      </View>
+    </View>
+  );
+}
+
 export function TeamDetailScreen({ route }: Props) {
   const navigation = useNavigation<Nav>();
   const { team } = route.params;
@@ -92,7 +150,6 @@ export function TeamDetailScreen({ route }: Props) {
   const [inviteDurationMinutes, setInviteDurationMinutes] = useState(60);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
-  const [showOptionsModal, setShowOptionsModal] = useState(false);
   const [leaveLoading, setLeaveLoading] = useState(false);
   const queryClient = useQueryClient();
   const { setCurrentTeamId } = useNotificationModal();
@@ -102,20 +159,61 @@ export function TeamDetailScreen({ route }: Props) {
     return () => setCurrentTeamId(null);
   }, [team.id, setCurrentTeamId]);
 
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerRight: () =>
-        isManager ? (
-          <Pressable onPress={() => { setShowInviteModal(true); setInviteLink(null); }} style={styles.headerInviteBtn}>
-            <Text style={styles.headerInviteText}>Ekibe davet et</Text>
-          </Pressable>
-        ) : (
-          <Pressable onPress={() => setShowOptionsModal(true)} style={styles.headerInviteBtn}>
-            <Text style={styles.headerInviteText}>Ekip ayarları</Text>
-          </Pressable>
-        ),
-    });
-  }, [isManager, navigation]);
+  useFocusEffect(
+    useCallback(() => {
+      queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+      queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
+      queryClient.invalidateQueries({ queryKey: ['join-requests-count', team.id] });
+      queryClient.invalidateQueries({ queryKey: ['team-member-feature-permissions', team.id] });
+      if (team.organization_id) {
+        queryClient.invalidateQueries({ queryKey: ['org-members-with-roles', team.organization_id] });
+      }
+    }, [queryClient, team.id, team.organization_id])
+  );
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`team_members:${team.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'team_members',
+          filter: `team_id=eq.${team.id}`,
+        },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+          queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
+          queryClient.invalidateQueries({ queryKey: ['join-requests-count', team.id] });
+          queryClient.invalidateQueries({ queryKey: ['team-member-feature-permissions', team.id] });
+          if (team.organization_id) {
+            queryClient.invalidateQueries({ queryKey: ['org-members-with-roles', team.organization_id] });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [queryClient, team.id, team.organization_id]);
+
+  const { data: joinRequestCount = 0 } = useQuery({
+    queryKey: ['join-requests-count', team.id],
+    queryFn: () => getPendingJoinRequestsCountForTeam(team.id),
+    enabled: isManager,
+    refetchInterval: 10000,
+  });
+
+  const goToJoinRequests = () => {
+    if (navigationRef.isReady()) {
+      (navigationRef as { navigate: (name: string, params?: object) => void }).navigate('Main', {
+        screen: 'JoinRequests',
+        params: { teamId: team.id },
+      });
+    }
+  };
 
   const handleLeaveTeam = () => {
     if (!user?.id) return;
@@ -132,7 +230,8 @@ export function TeamDetailScreen({ route }: Props) {
             try {
               await removeMember(team.id, user.id);
               queryClient.invalidateQueries({ queryKey: ['my-teams', user.id] });
-              setShowOptionsModal(false);
+              queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+              queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
               navigation.reset({ index: 0, routes: [{ name: 'TeamsList' }] });
             } catch (e) {
               Alert.alert('Hata', e instanceof Error ? e.message : 'Ekipten ayrılınamadı.');
@@ -174,6 +273,41 @@ export function TeamDetailScreen({ route }: Props) {
     queryKey: ['team-members', team.id],
     queryFn: () => getTeamMembers(team.id),
   });
+  const { data: memberFeaturePermissions = [] } = useQuery({
+    queryKey: ['team-member-feature-permissions', team.id],
+    queryFn: () => listTeamMemberFeaturePermissions(team.id),
+    enabled: !isManager,
+  });
+
+  const memberAllowedFeatureKeys = React.useMemo(() => {
+    if (isManager || !user?.id) return new Set<string>();
+    return new Set(
+      memberFeaturePermissions
+        .filter((row) => row.user_id === user.id)
+        .map((row) => row.feature_key)
+    );
+  }, [isManager, memberFeaturePermissions, user?.id]);
+
+  const visibleManagerCards = React.useMemo(() => {
+    if (isManager) return TEAM_FEATURE_CARDS;
+    return TEAM_FEATURE_CARDS.filter((card) => memberAllowedFeatureKeys.has(card.key));
+  }, [isManager, memberAllowedFeatureKeys]);
+
+  const organizationId = team.organization_id ?? undefined;
+  const { data: orgMembersWithRoles = [] } = useQuery({
+    queryKey: ['org-members-with-roles', organizationId],
+    queryFn: () => listMembersWithRoles(organizationId!),
+    enabled: !!organizationId,
+  });
+
+  const rbacRoleByUserId = React.useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const row of orgMembersWithRoles) {
+      const label = rbacRoleDisplayName(row.member_roles);
+      if (label) map[row.user_id] = label;
+    }
+    return map;
+  }, [orgMembersWithRoles]);
 
   const selectedWeekDays = React.useMemo(() => getDaysForWeek(selectedWeekStart), [selectedWeekStart]);
   const { data: shifts = [], isLoading: shiftsLoading } = useQuery({
@@ -187,15 +321,110 @@ export function TeamDetailScreen({ route }: Props) {
     [shifts, selectedWeekDays]
   );
 
+  const openManagerCard = (key: (typeof TEAM_FEATURE_CARDS)[number]['key']) => {
+    if (key === 'team_management') {
+      void queryClient.prefetchQuery({
+        queryKey: ['team-members', team.id],
+        queryFn: () => getTeamMembers(team.id),
+      });
+      const oid = team.organization_id;
+      if (oid) {
+        void queryClient.prefetchQuery({
+          queryKey: ['org-members-with-roles', oid],
+          queryFn: () => listMembersWithRoles(oid),
+        });
+      }
+      navigation.navigate('TeamManagement', { team });
+      return;
+    }
+    if (key === 'shift_management') {
+      navigation.navigate('ShiftManagement', { team });
+      return;
+    }
+    if (key === 'timesheet_management') {
+      navigation.navigate('Timesheet', { team });
+      return;
+    }
+    if (key === 'shift_location_management') {
+      navigation.navigate('ShiftLocationManagement', { team });
+      return;
+    }
+    if (key === 'shortage_list') {
+      navigation.navigate('ShortageList', { team });
+      return;
+    }
+    if (key === 'shot_notification') {
+      navigation.navigate('ShotNotification', { team });
+      return;
+    }
+    navigation.navigate('InventoryManagement', { team });
+  };
+
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, !isManager && styles.contentMember]}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.teamName}>{team.name}</Text>
+      <View style={styles.teamHeaderRow}>
+        <View style={styles.teamTitleGroup}>
+          {isManager && (
+            <Pressable
+              onPress={() => navigation.goBack()}
+              style={({ pressed }) => [styles.inlineBackBtn, pressed && styles.inlineBackBtnPressed]}
+              hitSlop={8}
+            >
+              <Ionicons name="chevron-back" size={22} color={colors.textPrimary} />
+            </Pressable>
+          )}
+          <Text style={styles.teamName} numberOfLines={1}>
+            {team.name}
+          </Text>
+        </View>
+        {isManager ? (
+          <View style={styles.managerHeaderActions}>
+            <Pressable
+              onPress={goToJoinRequests}
+              style={({ pressed }) => [styles.joinInboxBtn, pressed && styles.joinInboxBtnPressed]}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Katılma istekleri"
+            >
+              <View>
+                <Ionicons name="mail-outline" size={22} color={colors.textPrimary} />
+                {joinRequestCount > 0 && (
+                  <View style={styles.joinInboxBadge}>
+                    <Text style={styles.joinInboxBadgeText}>
+                      {joinRequestCount > 99 ? '99+' : joinRequestCount}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Pressable>
+          </View>
+        ) : (
+          <Pressable
+            onPress={handleLeaveTeam}
+            disabled={leaveLoading}
+            style={({ pressed }) => [
+              styles.leaveChip,
+              pressed && styles.leaveChipPressed,
+              leaveLoading && styles.leaveChipDisabled,
+            ]}
+          >
+            <Ionicons name="exit-outline" size={16} color={colors.error} />
+            <Text style={styles.leaveChipText}>
+              {leaveLoading ? 'Çıkılıyor…' : 'Ekipten Ayrıl'}
+            </Text>
+          </Pressable>
+        )}
+      </View>
 
       <TabBar tabs={TABS} activeKey={activeTab} onChange={setActiveTab} />
+
+      {isManager && team.subscription_ends_at ? (
+        <TeamSubscriptionBanner teamName={team.name} endsAtIso={team.subscription_ends_at} />
+      ) : null}
 
       {activeTab === 'genel' && (
         <>
@@ -207,56 +436,90 @@ export function TeamDetailScreen({ route }: Props) {
               <Ionicons name="location" size={28} color={colors.accent} />
             </View>
             <View style={styles.shiftCheckInText}>
-              <Text style={styles.shiftCheckInTitle}>Vardiya girişi</Text>
+              <Text style={styles.shiftCheckInTitle}>Vardiya ve mola girişi</Text>
               <Text style={styles.shiftCheckInSubtitle}>Konumunuzla mesai başlatın</Text>
             </View>
             <Ionicons name="chevron-forward" size={22} color={colors.textSecondary} />
           </Pressable>
-
           {isManager && (
+            <Pressable
+              onPress={() => navigation.navigate('ShiftDetail', { team })}
+              style={({ pressed }) => [styles.shiftDetailCard, pressed && styles.shiftDetailCardPressed]}
+            >
+              <View style={styles.shiftDetailIconWrap}>
+                <Ionicons name="analytics-outline" size={24} color={colors.black} />
+              </View>
+              <View style={styles.shiftDetailText}>
+                <Text style={styles.shiftDetailTitle}>Vardiya detayı</Text>
+                <Text style={styles.shiftDetailSubtitle}>Canlı vardiya ve mola performansı</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={colors.accent} />
+            </Pressable>
+          )}
+          {!isManager && (
+            <Pressable
+              onPress={() => navigation.navigate('ShiftDetail', { team })}
+              style={({ pressed }) => [styles.shiftDetailCard, pressed && styles.shiftDetailCardPressed]}
+            >
+              <View style={styles.shiftDetailIconWrap}>
+                <Ionicons name="person-circle-outline" size={24} color={colors.black} />
+              </View>
+              <View style={styles.shiftDetailText}>
+                <Text style={styles.shiftDetailTitle}>Vardiya detaylarım</Text>
+                <Text style={styles.shiftDetailSubtitle}>Kendi giriş, çıkış ve mola özetin</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={22} color={colors.accent} />
+            </Pressable>
+          )}
+
+          {(isManager || visibleManagerCards.length > 0) && (
             <View style={styles.managerSection}>
-              <Text style={styles.managerSectionTitle}>Yönetici</Text>
+              <View style={styles.managerSectionHeaderRow}>
+                <Text style={styles.managerSectionTitle}>{isManager ? 'Yönetici' : 'Yetkili Araçlar'}</Text>
+                {isManager ? (
+                  <Pressable
+                    onPress={() => {
+                      setShowInviteModal(true);
+                      setInviteLink(null);
+                    }}
+                    style={({ pressed }) => [
+                      styles.managerInviteBtn,
+                      pressed && styles.managerInviteBtnPressed,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Ekibe davet linki oluştur"
+                  >
+                    <Ionicons name="person-add-outline" size={18} color={colors.black} />
+                    <Text style={styles.managerInviteBtnText}>Ekibe davet et</Text>
+                  </Pressable>
+                ) : null}
+              </View>
               <View style={styles.managerGrid}>
-                <Pressable
-                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
-                  onPress={() => navigation.navigate('TeamManagement', { team })}
-                >
-                  <View style={styles.managerCardIconWrap}>
-                    <Ionicons name="people-outline" size={26} color={colors.accent} />
-                  </View>
-                  <Text style={styles.managerCardTitle}>Ekip Yönetimi</Text>
-                  <Text style={styles.managerCardSubtitle}>Üyeler ve roller</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
-                  onPress={() => navigation.navigate('ShiftManagement', { team })}
-                >
-                  <View style={styles.managerCardIconWrap}>
-                    <Ionicons name="calendar-outline" size={26} color={colors.accent} />
-                  </View>
-                  <Text style={styles.managerCardTitle}>Vardiya Yönetimi</Text>
-                  <Text style={styles.managerCardSubtitle}>Haftalık plan</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
-                  onPress={() => navigation.navigate('Timesheet', { team })}
-                >
-                  <View style={styles.managerCardIconWrap}>
-                    <Ionicons name="document-text-outline" size={26} color={colors.accent} />
-                  </View>
-                  <Text style={styles.managerCardTitle}>Puantaj Yönetimi</Text>
-                  <Text style={styles.managerCardSubtitle}>Giriş/çıkış kayıtları</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
-                  onPress={() => navigation.navigate('ShiftLocationManagement', { team })}
-                >
-                  <View style={styles.managerCardIconWrap}>
-                    <Ionicons name="location-outline" size={26} color={colors.accent} />
-                  </View>
-                  <Text style={styles.managerCardTitle}>Vardiya Konumu</Text>
-                  <Text style={styles.managerCardSubtitle}>Mağaza alanı</Text>
-                </Pressable>
+                {visibleManagerCards.map((card) => (
+                  <Pressable
+                    key={card.key}
+                    style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
+                    onPress={() => openManagerCard(card.key)}
+                  >
+                    <View style={styles.managerCardIconWrap}>
+                      <Ionicons name={card.icon as never} size={26} color={colors.accent} />
+                    </View>
+                    <Text style={styles.managerCardTitle}>{card.title}</Text>
+                    <Text style={styles.managerCardSubtitle}>{card.subtitle}</Text>
+                  </Pressable>
+                ))}
+                {isManager ? (
+                  <Pressable
+                    style={({ pressed }) => (pressed ? [styles.managerCard, styles.managerCardPressed] : [styles.managerCard])}
+                    onPress={() => navigation.navigate('MemberPermissions', { team })}
+                  >
+                    <View style={styles.managerCardIconWrap}>
+                      <Ionicons name="shield-checkmark-outline" size={26} color={colors.accent} />
+                    </View>
+                    <Text style={styles.managerCardTitle}>Üye İzinleri</Text>
+                    <Text style={styles.managerCardSubtitle}>Kart erişimlerini yönet</Text>
+                  </Pressable>
+                ) : null}
               </View>
             </View>
           )}
@@ -267,7 +530,11 @@ export function TeamDetailScreen({ route }: Props) {
           ) : (
             members.map((m) => {
               const displayName = m.user ? [m.user.name, m.user.surname].filter(Boolean).join(' ') || m.user.email || 'Üye' : 'Üye';
-              const roleLabel = m.role === 'MANAGER' ? 'Yönetici' : 'Barista';
+              const roleLabel =
+                m.user_id === team.owner_id
+                  ? 'Ekip Lideri'
+                  : (rbacRoleByUserId[m.user_id] ??
+                    'Rol atanmamış');
               return (
                 <Pressable
                   key={m.id}
@@ -415,25 +682,6 @@ export function TeamDetailScreen({ route }: Props) {
         </View>
       </Modal>
 
-      <Modal visible={showOptionsModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Ekip ayarları</Text>
-              <Pressable onPress={() => setShowOptionsModal(false)}>
-                <Text style={styles.modalClose}>✕</Text>
-              </Pressable>
-            </View>
-            <Button
-              title="Ekipten ayrıl"
-              onPress={handleLeaveTeam}
-              loading={leaveLoading}
-              variant="outline"
-              style={[styles.modalBtn, styles.leaveBtn]}
-            />
-          </View>
-        </View>
-      </Modal>
     </ScrollView>
   );
 }
@@ -441,20 +689,124 @@ export function TeamDetailScreen({ route }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
   content: { padding: spacing.md, paddingBottom: spacing.xxl },
-  teamName: { ...typography.title, color: colors.accent, marginBottom: spacing.xs },
+  contentMember: { paddingTop: spacing.md },
+  teamHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  teamTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flex: 1,
+    minWidth: 0,
+  },
+  inlineBackBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inlineBackBtnPressed: { opacity: 0.75 },
+  teamName: { ...typography.title, color: colors.accent, flex: 1, minWidth: 0 },
+  managerHeaderActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    flexShrink: 0,
+  },
+  joinInboxBtn: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    justifyContent: 'center',
+  },
+  joinInboxBtnPressed: { opacity: 0.75 },
+  joinInboxBadge: {
+    position: 'absolute',
+    right: -6,
+    top: -6,
+    minWidth: 16,
+    height: 16,
+    borderRadius: 8,
+    paddingHorizontal: 3,
+    backgroundColor: colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  joinInboxBadgeText: {
+    fontSize: 9,
+    lineHeight: 11,
+    color: colors.textPrimary,
+    fontWeight: '700',
+  },
+  leaveChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(239, 68, 68, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+  },
+  leaveChipPressed: { opacity: 0.85 },
+  leaveChipDisabled: { opacity: 0.6 },
+  leaveChipText: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.error,
+  },
   inviteCode: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.lg },
   card: { marginBottom: spacing.lg },
   cardTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.sm },
   btn: { marginTop: spacing.sm },
   managerSection: { marginBottom: spacing.lg },
+  managerSectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    paddingHorizontal: 2,
+  },
   managerSectionTitle: {
     fontSize: 12,
     fontFamily: fonts.semibold,
     color: colors.textSecondary,
     textTransform: 'uppercase',
     letterSpacing: 0.8,
-    marginBottom: spacing.md,
-    paddingHorizontal: 2,
+    flex: 1,
+    minWidth: 0,
+  },
+  managerInviteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: borderRadius.full,
+    backgroundColor: colors.accent,
+    shadowColor: colors.accent,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+  managerInviteBtnPressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.98 }],
+  },
+  managerInviteBtnText: {
+    fontSize: 13,
+    fontFamily: fonts.semibold,
+    color: colors.black,
+    letterSpacing: 0.2,
   },
   managerGrid: {
     flexDirection: 'row',
@@ -519,6 +871,38 @@ const styles = StyleSheet.create({
   shiftCheckInText: { flex: 1, minWidth: 0 },
   shiftCheckInTitle: { ...typography.body, fontFamily: fonts.semibold, color: colors.textPrimary },
   shiftCheckInSubtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  shiftDetailCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.lg,
+    backgroundColor: colors.accent + '0F',
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.accent + '4D',
+    gap: spacing.md,
+  },
+  shiftDetailCardPressed: { opacity: 0.9 },
+  shiftDetailIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shiftDetailText: { flex: 1, minWidth: 0 },
+  shiftDetailTitle: {
+    ...typography.body,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+  },
+  shiftDetailSubtitle: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
   sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.md },
   placeholder: { ...typography.body, color: colors.textSecondary },
   memberRow: {
@@ -684,11 +1068,43 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   shiftCard: { marginBottom: spacing.sm },
+  subBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    padding: spacing.md,
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  subBannerUrgent: {
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+  },
+  subBannerExpired: {
+    backgroundColor: 'rgba(239, 68, 68, 0.08)',
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+  },
+  subBannerTextWrap: { flex: 1, minWidth: 0 },
+  subBannerTitle: {
+    ...typography.small,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 4,
+  },
+  subBannerBody: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    lineHeight: 22,
+  },
+  subBannerStrong: { color: colors.textPrimary, fontFamily: fonts.semibold },
   shiftDate: { fontSize: 14, color: colors.textPrimary, fontWeight: '600' },
   shiftTime: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
   shiftUser: { fontSize: 12, color: colors.accent, marginTop: 4 },
-  headerInviteBtn: { paddingHorizontal: spacing.sm, paddingVertical: spacing.xs },
-  headerInviteText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.8)', justifyContent: 'center', padding: spacing.lg },
   modalBox: { backgroundColor: colors.glassBg, borderRadius: 16, borderWidth: 1, borderColor: colors.glassBorder, padding: spacing.lg },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },

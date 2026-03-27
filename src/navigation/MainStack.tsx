@@ -5,12 +5,17 @@ import { NotificationModalProvider } from '../context/NotificationModalContext';
 import { MainTabs } from './MainTabs';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { EquipmentGuideScreen } from '../screens/EquipmentGuideScreen';
+import { JoinRequestsScreen } from '../screens/JoinRequestsScreen';
+import { JoinRequestProfileScreen } from '../screens/JoinRequestProfileScreen';
 import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
+import type { TeamJoinRequest } from '../types';
 
 export type MainStackParamList = {
   MainTabs: undefined;
   Profile: undefined;
   Equipment: undefined;
+  JoinRequests: { teamId?: string } | undefined;
+  JoinRequestProfile: { request: TeamJoinRequest };
 };
 
 const Stack = createStackNavigator<MainStackParamList>();
@@ -31,10 +36,14 @@ export function MainStack() {
     <NotificationModalProvider>
     <Stack.Navigator
       screenOptions={({ route }) => ({
-        headerShown: route.name !== 'MainTabs',
+        headerShown: route.name === 'MainTabs' ? false : true,
+        headerTitleAlign: 'left',
         cardStyle: { backgroundColor: colors.bgDark },
         headerStyle: { backgroundColor: colors.bgDark },
         headerTitleStyle: { ...typography.subtitle, color: colors.textPrimary },
+        headerBackTitleVisible: false,
+        headerBackTitle: '',
+        headerTitleContainerStyle: route.name === 'MainTabs' ? undefined : { left: 0 },
         headerTintColor: colors.textPrimary,
         headerShadowVisible: false,
         cardStyleInterpolator:
@@ -46,6 +55,8 @@ export function MainStack() {
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
       <Stack.Screen name="Equipment" component={EquipmentGuideScreen} options={{ title: 'Makine & Ekipman' }} />
+      <Stack.Screen name="JoinRequests" component={JoinRequestsScreen} options={{ title: 'Katılma istekleri' }} />
+      <Stack.Screen name="JoinRequestProfile" component={JoinRequestProfileScreen} options={{ title: 'Aday profili' }} />
     </Stack.Navigator>
     </NotificationModalProvider>
   );

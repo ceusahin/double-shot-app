@@ -1,15 +1,15 @@
 {
   "expo": {
-    "name": "double-shot-app",
-    "slug": "double-shot-app",
-    "scheme": "doubleshot",
+    "name": "Ekibio",
+    "slug": "ekibio",
+    "scheme": "ekibio",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/logo.png",
+    "icon": "./public/logo.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#1A1A1A",
     "splash": {
-      "image": "./assets/logo.png",
+      "image": "./public/logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#1A1A1A"
     },
@@ -19,7 +19,7 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#1A1A1A",
-        "foregroundImage": "./assets/logo.png"
+        "foregroundImage": "./public/logo.png"
       },
       "predictiveBackGestureEnabled": false
     },

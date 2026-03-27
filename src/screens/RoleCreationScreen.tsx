@@ -36,9 +36,9 @@ export function RoleCreationScreen({ route }: Props) {
         setLoading(false);
         return;
       }
-      const role = await createRole(organizationId, name.trim(), description.trim() || undefined);
-      Alert.alert('Rol oluşturuldu', 'Şimdi seviye ekleyebilirsiniz.', [
-        { text: 'Tamam', onPress: () => navigation.navigate('RoleLevel', { team, role }) },
+      await createRole(organizationId, name.trim(), description.trim() || undefined);
+      Alert.alert('Rol oluşturuldu', 'Yeni rol ekip yönetimi ekranında görünecek.', [
+        { text: 'Tamam', onPress: () => navigation.goBack() },
       ]);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Rol oluşturulamadı.';

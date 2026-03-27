@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Alert } from 'react-native';
 import { Button, Input } from '../../components';
 import { useAuthStore } from '../../store/authStore';
-import { joinTeamByInviteToken } from '../../services/teams';
+import { requestJoinTeamByInviteToken } from '../../services/teams';
 import { colors, spacing, typography } from '../../utils/theme';
 
 function extractToken(input: string): string | null {
@@ -28,8 +28,8 @@ export function JoinTeamScreen() {
     setError('');
     setLoading(true);
     try {
-      const team = await joinTeamByInviteToken(token);
-      Alert.alert('Takıma katıldınız', team.name, [{ text: 'Tamam' }]);
+      const team = await requestJoinTeamByInviteToken(token);
+      Alert.alert('İstek gönderildi', `${team.name} ekibine katılma isteğiniz gönderildi.`, [{ text: 'Tamam' }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Geçersiz veya süresi dolmuş davet linki.');
     } finally {

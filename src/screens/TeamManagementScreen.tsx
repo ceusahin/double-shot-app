@@ -6,7 +6,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, Avatar, TabBar } from '../components';
 import { useAuthStore } from '../store/authStore';
-import { getTeamMembers, removeMember } from '../services/teams';
+import { getTeamMembers } from '../services/teams';
 import { getTeamMembersOnShift } from '../services/shifts';
 import {
   ensureOrganizationForTeam,
@@ -14,11 +14,9 @@ import {
   listMembersWithRoles,
   getOrCreateMember,
   deleteRole,
-  listPermissions,
 } from '../services/rbac';
 import { usePermissions } from '../hooks/usePermissions';
 import { colors, spacing, typography, borderRadius } from '../utils/theme';
-import { getPermissionDisplayName } from '../utils/permissionLabels';
 import type { Team, TeamMember } from '../types';
 import type { Member } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
@@ -30,35 +28,28 @@ type Props = {
 type Nav = StackNavigationProp<TeamsStackParamList, 'TeamManagement'>;
 
 type MainTabKey = 'employees' | 'roles';
-type ShiftTabKey = 'on_shift' | 'off_shift';
-type RolesTabKey = 'roller' | 'yetkiler';
+type ShiftTabKey = 'on_shift' | 'off_shift' | 'all';
 
-/** Tek rol: "Seviye Rol" (örn. Senior Barista). Max 1 rol gösterilir. */
+/** Tek rol gösterimi */
 function formatAssignedRoles(
   memberRoles: { role?: { name: string }; role_level?: { name: string } }[] | undefined
 ): string {
   if (!memberRoles?.length) return 'Rol atanmamış';
   const first = memberRoles[0];
-  const level = first.role_level?.name ?? '';
   const role = first.role?.name ?? '';
-  const parts = [level, role].filter(Boolean);
-  return parts.length ? parts.join(' ') : 'Rol atanmamış';
+  return role || 'Rol atanmamış';
 }
 
 function MemberRow({
   member,
   assignedRolesText,
-  isOwner,
   canAssignRoles,
   onAssignRole,
-  onRemove,
 }: {
   member: TeamMember;
   assignedRolesText: string;
-  isOwner: boolean;
   canAssignRoles: boolean;
   onAssignRole: () => void;
-  onRemove: () => void;
 }) {
   const displayName =
     member.user
@@ -87,18 +78,9 @@ function MemberRow({
               onPress={onAssignRole}
               style={({ pressed }) => [styles.editIconBtn, pressed && styles.editIconBtnPressed]}
               hitSlop={6}
-              accessibilityLabel="Rol ve yetki düzenle"
+              accessibilityLabel="Üye düzenle"
             >
               <Ionicons name="create-outline" size={18} color={colors.textSecondary} />
-            </Pressable>
-          )}
-          {!isOwner && (
-            <Pressable
-              onPress={onRemove}
-              style={({ pressed }) => [styles.removeBtn, pressed && styles.removeBtnPressed]}
-              accessibilityLabel="Ekipten çıkar"
-            >
-              <Text style={styles.removeBtnText}>Çıkar</Text>
             </Pressable>
           )}
         </View>
@@ -114,7 +96,6 @@ export function TeamManagementScreen({ route }: Props) {
   const queryClient = useQueryClient();
   const [mainTab, setMainTab] = useState<MainTabKey>('employees');
   const [shiftTab, setShiftTab] = useState<ShiftTabKey>('on_shift');
-  const [rolesTab, setRolesTab] = useState<RolesTabKey>('roller');
 
   const isOwner = team.owner_id === user?.id;
   const organizationId = team.organization_id ?? undefined;
@@ -137,7 +118,9 @@ export function TeamManagementScreen({ route }: Props) {
     useCallback(() => {
       if (orgId) {
         queryClient.invalidateQueries({ queryKey: ['org-roles', orgId] });
+        queryClient.invalidateQueries({ queryKey: ['org-members-with-roles', orgId] });
       }
+      queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
       queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
     }, [orgId, team.id, queryClient])
   );
@@ -160,17 +143,20 @@ export function TeamManagementScreen({ route }: Props) {
     enabled: !!orgId,
   });
 
-  const { data: permissions = [] } = useQuery({
-    queryKey: ['permissions'],
-    queryFn: listPermissions,
-    enabled: mainTab === 'roles' && rolesTab === 'yetkiler',
-  });
-
-  const { data: rbacMembersWithRoles = [] } = useQuery({
+  const {
+    data: rbacMembersWithRoles = [],
+    isPending: rbacMembersPending,
+    isFetching: rbacMembersFetching,
+  } = useQuery({
     queryKey: ['org-members-with-roles', orgId],
     queryFn: () => listMembersWithRoles(orgId!),
     enabled: !!orgId,
   });
+
+  const rbacRoleLabelsLoading =
+    !!orgId &&
+    rbacMembersWithRoles.length === 0 &&
+    (rbacMembersPending || rbacMembersFetching);
 
   const onShiftUserIds = useMemo(
     () => new Set(onShiftList.map((x) => x.user_id)),
@@ -194,7 +180,11 @@ export function TeamManagementScreen({ route }: Props) {
     [members, onShiftUserIds]
   );
 
-  const displayedMembers = shiftTab === 'on_shift' ? membersOnShift : membersOffShift;
+  const displayedMembers = useMemo(() => {
+    if (shiftTab === 'on_shift') return membersOnShift;
+    if (shiftTab === 'off_shift') return membersOffShift;
+    return members;
+  }, [shiftTab, membersOnShift, membersOffShift, members]);
 
   const handleAssignRole = async (member: TeamMember) => {
     if (!orgId) return;
@@ -208,13 +198,17 @@ export function TeamManagementScreen({ route }: Props) {
         return;
       }
     }
-    navigation.navigate('MemberRole', { team, member: rbacMember });
+    navigation.navigate('MemberRole', {
+      team,
+      member: rbacMember,
+      ...(orgId ? { organizationId: orgId } : {}),
+    });
   };
 
   const handleDeleteRole = (role: { id: string; name: string }) => {
     Alert.alert(
       'Rolü sil',
-      `"${role.name}" rolü silinsin mi? Bu role atanmış seviyeler ve yetkiler de kaldırılır.`,
+      `"${role.name}" rolü silinsin mi? Bu role atanmış yetkiler de kaldırılır.`,
       [
         { text: 'İptal', style: 'cancel' },
         {
@@ -233,45 +227,15 @@ export function TeamManagementScreen({ route }: Props) {
     );
   };
 
-  const handleRemoveMember = (member: TeamMember) => {
-    const displayName = member.user
-      ? [member.user.name, member.user.surname].filter(Boolean).join(' ') || member.user.email
-      : 'Bu üye';
-    Alert.alert(
-      'Ekipten çıkar',
-      `"${displayName}" ekipten çıkarılsın mı? Bu işlem geri alınamaz.`,
-      [
-        { text: 'İptal', style: 'cancel' },
-        {
-          text: 'Çıkar',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await removeMember(team.id, member.user_id);
-              queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
-              queryClient.invalidateQueries({ queryKey: ['org-members-with-roles', orgId!] });
-            } catch (e) {
-              Alert.alert('Hata', e instanceof Error ? e.message : 'Üye çıkarılamadı.');
-            }
-          },
-        },
-      ]
-    );
-  };
-
   const mainTabs = [
-    { key: 'employees' as MainTabKey, label: 'Çalışan Listesi' },
-    { key: 'roles' as MainTabKey, label: 'Rol ve Yetkiler' },
-  ];
-
-  const rolesSubTabs = [
-    { key: 'roller' as RolesTabKey, label: 'Roller' },
-    { key: 'yetkiler' as RolesTabKey, label: 'Yetkiler' },
+    { key: 'employees' as MainTabKey, label: 'Ekip Listesi' },
+    { key: 'roles' as MainTabKey, label: 'Roller' },
   ];
 
   const shiftTabs = [
     { key: 'on_shift' as ShiftTabKey, label: `Mesaide (${membersOnShift.length})` },
     { key: 'off_shift' as ShiftTabKey, label: `Mesaide değil (${membersOffShift.length})` },
+    { key: 'all' as ShiftTabKey, label: `Tüm ekip (${members.length})` },
   ];
 
   return (
@@ -282,7 +246,7 @@ export function TeamManagementScreen({ route }: Props) {
     >
       <Text style={styles.teamName}>{team.name}</Text>
       <Text style={styles.sectionSubtitle}>
-        Çalışanları yönetin, roller ve yetkileri düzenleyin.
+        Çalışanları yönetin ve rolleri düzenleyin.
       </Text>
 
       <TabBar tabs={mainTabs} activeKey={mainTab} onChange={setMainTab} variant="primary" />
@@ -302,7 +266,9 @@ export function TeamManagementScreen({ route }: Props) {
               <Text style={styles.placeholder}>
                 {shiftTab === 'on_shift'
                   ? 'Şu an mesaide kimse yok.'
-                  : 'Mesaide olmayan üye yok.'}
+                  : shiftTab === 'off_shift'
+                    ? 'Mesaide olmayan üye yok.'
+                    : 'Ekipte üye yok.'}
               </Text>
             </Card>
           ) : (
@@ -313,12 +279,12 @@ export function TeamManagementScreen({ route }: Props) {
                 assignedRolesText={
                   m.user_id === team.owner_id
                     ? 'Ekip Lideri'
-                    : (assignedRolesByUserId[m.user_id] ?? 'Rol atanmamış')
+                    : rbacRoleLabelsLoading
+                      ? 'Yükleniyor…'
+                      : (assignedRolesByUserId[m.user_id] ?? 'Rol atanmamış')
                 }
-                isOwner={m.user_id === team.owner_id}
                 canAssignRoles={!!canAssignRoles}
                 onAssignRole={() => handleAssignRole(m)}
-                onRemove={() => handleRemoveMember(m)}
               />
             ))
           )}
@@ -327,100 +293,71 @@ export function TeamManagementScreen({ route }: Props) {
 
       {mainTab === 'roles' && (
         <>
-          <TabBar tabs={rolesSubTabs} activeKey={rolesTab} onChange={setRolesTab} />
-
-          {rolesTab === 'roller' && (
-            <>
-              {canManageRoles && (
-                <Pressable
-                  onPress={async () => {
-                    let resolvedOrgId = orgId;
-                    if (!resolvedOrgId && isOwner && user?.id) {
-                      try {
-                        const o = await ensureOrganizationForTeam(team.id, team.name, user.id);
-                        resolvedOrgId = o.id;
-                        queryClient.invalidateQueries({ queryKey: ['org-for-team', team.id] });
-                      } catch (e) {
-                        Alert.alert('Hata', e instanceof Error ? e.message : 'Organizasyon oluşturulamadı.');
-                        return;
-                      }
-                    }
-                    if (resolvedOrgId) {
-                      navigation.navigate('RoleCreation', { team, organizationId: resolvedOrgId });
-                    } else {
-                      Alert.alert('Hata', 'Organizasyon bilgisi alınamadı. Lütfen tekrar deneyin.');
-                    }
-                  }}
-                  style={({ pressed }) => [styles.addRoleCard, pressed && styles.addRoleCardPressed]}
-                >
-                  <View style={styles.addRoleCardInner}>
-                    <View style={styles.addRoleIconWrap}>
-                      <Ionicons name="add" size={24} color={colors.accent} />
-                    </View>
-                    <View style={styles.addRoleCardText}>
-                      <Text style={styles.addRoleCardTitle}>Yeni rol oluştur</Text>
-                      <Text style={styles.addRoleCardHint}>Rol adı ve seviye ekleyin</Text>
-                    </View>
-                  </View>
-                </Pressable>
-              )}
-              <Text style={styles.rolesSectionLabel}>Mevcut roller</Text>
-              {roles.length === 0 ? (
-                <Card>
-                  <Text style={styles.placeholder}>
-                    Henüz rol yok. "Rol ekle" ile yeni rol oluşturup seviye ve yetki atayabilirsiniz.
-                  </Text>
-                </Card>
-              ) : (
-                roles.map((role) => (
-                  <Card
-                    key={role.id}
-                    style={styles.roleCard}
-                    onPress={() => canManageRoles && navigation.navigate('RoleLevel', { team, role })}
-                  >
-                    <View style={styles.roleCardInner}>
-                      <View style={styles.roleCardContent}>
-                        <Text style={styles.roleName}>{role.name}</Text>
-                        {role.description ? (
-                          <Text style={styles.roleDesc} numberOfLines={2}>
-                            {role.description}
-                          </Text>
-                        ) : null}
-                      </View>
-                      {canManageRoles && (
-                        <Pressable
-                          onPress={() => handleDeleteRole(role)}
-                          style={({ pressed }) => [styles.roleDeleteBtn, pressed && styles.roleDeleteBtnPressed]}
-                          hitSlop={8}
-                          accessibilityLabel="Rolü sil"
-                        >
-                          <Ionicons name="trash-outline" size={20} color={colors.error} />
-                        </Pressable>
-                      )}
-                    </View>
-                  </Card>
-                ))
-              )}
-            </>
+          {canManageRoles && (
+            <Pressable
+              onPress={async () => {
+                let resolvedOrgId = orgId;
+                if (!resolvedOrgId && isOwner && user?.id) {
+                  try {
+                    const o = await ensureOrganizationForTeam(team.id, team.name, user.id);
+                    resolvedOrgId = o.id;
+                    queryClient.invalidateQueries({ queryKey: ['org-for-team', team.id] });
+                  } catch (e) {
+                    Alert.alert('Hata', e instanceof Error ? e.message : 'Organizasyon oluşturulamadı.');
+                    return;
+                  }
+                }
+                if (resolvedOrgId) {
+                  navigation.navigate('RoleCreation', { team, organizationId: resolvedOrgId });
+                } else {
+                  Alert.alert('Hata', 'Organizasyon bilgisi alınamadı. Lütfen tekrar deneyin.');
+                }
+              }}
+              style={({ pressed }) => [styles.addRoleCard, pressed && styles.addRoleCardPressed]}
+            >
+              <View style={styles.addRoleCardInner}>
+                <View style={styles.addRoleIconWrap}>
+                  <Ionicons name="add" size={24} color={colors.accent} />
+                </View>
+                <View style={styles.addRoleCardText}>
+                  <Text style={styles.addRoleCardTitle}>Yeni rol oluştur</Text>
+                  <Text style={styles.addRoleCardHint}>Rol adı ve açıklama ekleyin</Text>
+                </View>
+              </View>
+            </Pressable>
           )}
-
-          {rolesTab === 'yetkiler' && (
-            <>
-              <Text style={styles.permissionsIntro}>
-                Aşağıdaki yetkiler rol seviyelerine atanabilir. Rol düzenlerken seviye seçip yetkileri atayın.
+          <Text style={styles.rolesSectionLabel}>Mevcut roller</Text>
+          {roles.length === 0 ? (
+            <Card>
+              <Text style={styles.placeholder}>
+                Henüz rol yok. "Rol ekle" ile yeni rol oluşturup yetki atayabilirsiniz.
               </Text>
-              {permissions.length === 0 ? (
-                <Card>
-                  <Text style={styles.placeholder}>Yetki listesi yükleniyor.</Text>
-                </Card>
-              ) : (
-                permissions.map((p) => (
-                  <Card key={p.id} style={styles.permissionCard}>
-                    <Text style={styles.permissionLabel}>{getPermissionDisplayName(p)}</Text>
-                  </Card>
-                ))
-              )}
-            </>
+            </Card>
+          ) : (
+            roles.map((role) => (
+              <Card key={role.id} style={styles.roleCard}>
+                <View style={styles.roleCardInner}>
+                  <View style={styles.roleCardContent}>
+                    <Text style={styles.roleName}>{role.name}</Text>
+                    {role.description ? (
+                      <Text style={styles.roleDesc} numberOfLines={2}>
+                        {role.description}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {canManageRoles && (
+                    <Pressable
+                      onPress={() => handleDeleteRole(role)}
+                      style={({ pressed }) => [styles.roleDeleteBtn, pressed && styles.roleDeleteBtnPressed]}
+                      hitSlop={8}
+                      accessibilityLabel="Rolü sil"
+                    >
+                      <Ionicons name="trash-outline" size={20} color={colors.error} />
+                    </Pressable>
+                  )}
+                </View>
+              </Card>
+            ))
           )}
         </>
       )}
@@ -457,17 +394,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   editIconBtnPressed: { opacity: 0.6 },
-  removeBtn: {
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.sm,
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    minWidth: 56,
-  },
-  removeBtnPressed: { opacity: 0.85 },
-  removeBtnText: { fontSize: 13, fontWeight: '600', color: colors.error },
   btn: { marginBottom: spacing.sm },
   placeholder: { ...typography.body, color: colors.textMuted },
   addRoleCard: {

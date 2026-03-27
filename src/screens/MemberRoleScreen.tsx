@@ -1,32 +1,36 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, Pressable } from 'react-native';
-import { useRoute, RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card, Button } from '../components';
 import {
   listRoles,
   listRoleLevels,
+  createRoleLevel,
   getMemberRoles,
   assignMemberRole,
   removeMemberRole,
 } from '../services/rbac';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
+import { removeMember, syncTeamMemberRoleWithRbac } from '../services/teams';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
 import type { Team } from '../types';
-import type { Member, Role, RoleLevel } from '../types/rbac';
+import type { Member, Role } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'MemberRole'> };
+type Nav = StackNavigationProp<TeamsStackParamList>;
 
 export function MemberRoleScreen({ route }: Props) {
-  const { team, member } = route.params;
+  const navigation = useNavigation<Nav>();
+  const { team, member, organizationId: organizationIdParam } = route.params;
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
-  const organizationId = team.organization_id ?? undefined;
+  const organizationId = organizationIdParam ?? team.organization_id ?? undefined;
 
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
-  const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const { data: roles = [] } = useQuery({
@@ -50,19 +54,28 @@ export function MemberRoleScreen({ route }: Props) {
     ? [member.user.name, member.user.surname].filter(Boolean).join(' ') ||
       (member.user as { email?: string }).email
     : member.user_id;
+  const isTeamOwner = member.user_id === team.owner_id;
 
   const handleAssign = async () => {
-    if (!selectedRoleId || !selectedLevelId || !user) return;
+    if (!selectedRoleId || !user) return;
     setSaving(true);
     try {
+      let roleLevelId = levels[0]?.id;
+      if (!roleLevelId) {
+        const created = await createRoleLevel(selectedRoleId, 'Temel', 0);
+        roleLevelId = created.id;
+      }
       for (const mr of currentRoles) {
         await removeMemberRole(mr.id);
       }
-      await assignMemberRole(member.id, selectedRoleId, selectedLevelId, user.id);
+      await assignMemberRole(member.id, selectedRoleId, roleLevelId, user.id);
+      await syncTeamMemberRoleWithRbac(team.id, member.user_id);
       queryClient.invalidateQueries({ queryKey: ['member-roles', member.id] });
-      queryClient.invalidateQueries({ queryKey: ['org-members-with-roles', organizationId] });
+      queryClient.invalidateQueries({ queryKey: ['org-members-with-roles'] });
+      queryClient.invalidateQueries({ queryKey: ['role-levels', selectedRoleId] });
+      queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+      queryClient.invalidateQueries({ queryKey: ['my-teams', member.user_id] });
       setSelectedRoleId(null);
-      setSelectedLevelId(null);
       Alert.alert('Rol atandı', 'Üyenin yetkileri güncellendi.');
     } catch (e) {
       Alert.alert('Hata', e instanceof Error ? e.message : 'Rol atanamadı.');
@@ -80,14 +93,46 @@ export function MemberRoleScreen({ route }: Props) {
         onPress: async () => {
           try {
             await removeMemberRole(memberRoleId);
+            await syncTeamMemberRoleWithRbac(team.id, member.user_id);
             queryClient.invalidateQueries({ queryKey: ['member-roles', member.id] });
-            queryClient.invalidateQueries({ queryKey: ['org-members-with-roles', organizationId] });
+            queryClient.invalidateQueries({ queryKey: ['org-members-with-roles'] });
+            queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+            queryClient.invalidateQueries({ queryKey: ['my-teams', member.user_id] });
           } catch (e) {
             Alert.alert('Hata', e instanceof Error ? e.message : 'Kaldırılamadı.');
           }
         },
       },
     ]);
+  };
+
+  const handleRemoveFromTeam = () => {
+    const displayName = member.user
+      ? [member.user.name, member.user.surname].filter(Boolean).join(' ') || (member.user as { email?: string }).email || 'Üye'
+      : 'Üye';
+    Alert.alert(
+      'Ekipten çıkar',
+      `"${displayName}" ekipten çıkarılsın mı? Bu işlem geri alınamaz.`,
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Çıkar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await removeMember(team.id, member.user_id);
+              queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+              queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
+              queryClient.invalidateQueries({ queryKey: ['org-members-with-roles'] });
+              queryClient.invalidateQueries({ queryKey: ['my-teams', member.user_id] });
+              navigation.goBack();
+            } catch (e) {
+              Alert.alert('Hata', e instanceof Error ? e.message : 'Üye ekipten çıkarılamadı.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (!organizationId) {
@@ -106,20 +151,29 @@ export function MemberRoleScreen({ route }: Props) {
     >
       <View style={styles.header}>
         <Text style={styles.memberName}>{displayName}</Text>
-        <Text style={styles.subtitle}>Üyeye rol ve seviye atayın.</Text>
+        <Text style={styles.subtitle}>Üyeye rol atayın.</Text>
       </View>
 
       {/* Mevcut roller */}
       <Text style={styles.sectionTitle}>Mevcut roller</Text>
-      {currentRoles.length === 0 ? (
+      {isTeamOwner ? (
+        <Card style={styles.currentRoleCard}>
+          <View style={styles.currentRoleRow}>
+            <View style={styles.currentRoleInfo}>
+              <Text style={styles.currentRoleName}>Ekip Lideri</Text>
+              <Text style={styles.currentRoleHint}>Varsayılan sahip rolü</Text>
+            </View>
+          </View>
+        </Card>
+      ) : currentRoles.length === 0 ? (
         <View style={styles.emptyCard}>
           <Ionicons name="ribbon-outline" size={32} color={colors.textMuted} />
           <Text style={styles.emptyText}>Henüz rol atanmamış</Text>
-          <Text style={styles.emptyHint}>Aşağıdan rol ve seviye seçip atayın.</Text>
+          <Text style={styles.emptyHint}>Aşağıdan rol seçip atayın.</Text>
         </View>
       ) : (
         currentRoles.slice(0, 1).map((mr) => {
-          const displayLabel = [mr.role_level?.name, mr.role?.name].filter(Boolean).join(' ') || 'Rol';
+          const displayLabel = mr.role?.name || 'Rol';
           return (
           <Card key={mr.id} style={styles.currentRoleCard}>
             <View style={styles.currentRoleRow}>
@@ -140,93 +194,80 @@ export function MemberRoleScreen({ route }: Props) {
       )}
 
       {/* Yeni rol ata */}
-      <Text style={[styles.sectionTitle, styles.sectionTitleSpaced]}>Yeni rol ata</Text>
-      <Text style={styles.hint}>
-        {currentRoles.length > 0
-          ? 'Yeni rol atandığında mevcut rol kaldırılır.'
-          : 'Önce rol, sonra seviye seçin ve "Rolü ata"ya basın.'}
-      </Text>
+      {!isTeamOwner && (
+        <>
+          <Text style={[styles.sectionTitle, styles.sectionTitleSpaced]}>Yeni rol ata</Text>
+          <Text style={styles.hint}>
+            {currentRoles.length > 0
+              ? 'Yeni rol atandığında mevcut rol kaldırılır.'
+              : 'Rolü seçip "Rolü ata"ya basın.'}
+          </Text>
 
-      <Text style={styles.stepLabel}>1. Rol seçin</Text>
-      {roles.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyText}>Henüz rol tanımı yok.</Text>
-          <Text style={styles.emptyHint}>Ekip yönetimi → Rol ve Yetkiler’den rol oluşturun.</Text>
-        </View>
-      ) : (
-        <View style={styles.roleList}>
-          {roles.map((role) => (
-            <Pressable
-              key={role.id}
-              onPress={() => {
-                setSelectedRoleId(role.id);
-                setSelectedLevelId(null);
-              }}
-              style={[
-                styles.roleItem,
-                selectedRoleId === role.id && styles.roleItemSelected,
-              ]}
-            >
-              <View style={styles.roleItemContent}>
-                <Text
+          <Text style={styles.stepLabel}>1. Rol seçin</Text>
+          {roles.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyText}>Henüz rol tanımı yok.</Text>
+              <Text style={styles.emptyHint}>Ekip yönetimi → Roller’den rol oluşturun.</Text>
+            </View>
+          ) : (
+            <View style={styles.roleList}>
+              {roles.map((role) => (
+                <Pressable
+                  key={role.id}
+                  onPress={() => {
+                    setSelectedRoleId(role.id);
+                  }}
                   style={[
-                    styles.roleItemText,
-                    selectedRoleId === role.id && styles.roleItemTextSelected,
+                    styles.roleItem,
+                    selectedRoleId === role.id && styles.roleItemSelected,
                   ]}
                 >
-                  {role.name}
-                </Text>
-                {role.description ? (
-                  <Text style={styles.roleItemDesc} numberOfLines={2}>
-                    {role.description}
-                  </Text>
-                ) : null}
-              </View>
-              {selectedRoleId === role.id && (
-                <Ionicons name="checkmark-circle" size={22} color={colors.accent} />
-              )}
-            </Pressable>
-          ))}
-        </View>
+                  <View style={styles.roleItemContent}>
+                    <Text
+                      style={[
+                        styles.roleItemText,
+                        selectedRoleId === role.id && styles.roleItemTextSelected,
+                      ]}
+                    >
+                      {role.name}
+                    </Text>
+                    {role.description ? (
+                      <Text style={styles.roleItemDesc} numberOfLines={2}>
+                        {role.description}
+                      </Text>
+                    ) : null}
+                  </View>
+                  {selectedRoleId === role.id && (
+                    <Ionicons name="checkmark-circle" size={22} color={colors.accent} />
+                  )}
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          {selectedRoleId && (
+            <>
+              <Button
+                title="Rolü ata"
+                onPress={handleAssign}
+                loading={saving}
+                variant="primary"
+                fullWidth
+                style={styles.assignBtn}
+              />
+            </>
+          )}
+        </>
       )}
 
-      {selectedRoleId && levels.length > 0 && (
-        <>
-          <Text style={styles.stepLabel}>2. Seviye seçin</Text>
-          <View style={styles.levelList}>
-            {levels.map((level) => (
-              <Pressable
-                key={level.id}
-                onPress={() => setSelectedLevelId(level.id)}
-                style={[
-                  styles.levelItem,
-                  selectedLevelId === level.id && styles.levelItemSelected,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.levelItemText,
-                    selectedLevelId === level.id && styles.levelItemTextSelected,
-                  ]}
-                >
-                  {level.name}
-                </Text>
-                {selectedLevelId === level.id && (
-                  <Ionicons name="checkmark-circle" size={22} color={colors.accent} />
-                )}
-              </Pressable>
-            ))}
-          </View>
-          <Button
-            title="Rolü ata"
-            onPress={handleAssign}
-            loading={saving}
-            disabled={!selectedLevelId}
-            variant="primary"
-            fullWidth
-            style={styles.assignBtn}
-          />
-        </>
+      {member.user_id !== team.owner_id && (
+        <Pressable
+          onPress={handleRemoveFromTeam}
+          style={({ pressed }) => [styles.removeMemberBtn, pressed && styles.removeMemberBtnPressed]}
+        >
+          <Ionicons name="person-remove-outline" size={18} color={colors.error} />
+          <Text style={styles.removeMemberBtnText}>Üyeyi ekipten çıkar</Text>
+        </Pressable>
       )}
     </ScrollView>
   );
@@ -273,6 +314,7 @@ const styles = StyleSheet.create({
   currentRoleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   currentRoleInfo: { flex: 1, minWidth: 0 },
   currentRoleName: { ...typography.body, fontFamily: fonts.semibold, color: colors.textPrimary },
+  currentRoleHint: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
   removeRoleBtn: { padding: spacing.sm },
   removeRoleBtnPressed: { opacity: 0.7 },
   roleList: { marginBottom: spacing.md },
@@ -293,21 +335,24 @@ const styles = StyleSheet.create({
   roleItemText: { ...typography.body, color: colors.textPrimary },
   roleItemTextSelected: { fontFamily: fonts.semibold, color: colors.accent },
   roleItemDesc: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
-  levelList: { marginBottom: spacing.md },
-  levelItem: {
+  assignBtn: { marginTop: spacing.sm },
+  removeMemberBtn: {
+    marginTop: spacing.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.error + '55',
+    backgroundColor: colors.error + '10',
+    borderRadius: borderRadius.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
-    borderRadius: borderRadius.sm,
-    backgroundColor: colors.glassBg,
-    borderWidth: 1,
-    borderColor: colors.glassBorder,
-    marginBottom: spacing.sm,
   },
-  levelItemSelected: { borderColor: colors.accent, backgroundColor: colors.accent + '12' },
-  levelItemText: { ...typography.body, color: colors.textPrimary },
-  levelItemTextSelected: { fontFamily: fonts.semibold, color: colors.accent },
-  assignBtn: { marginTop: spacing.sm },
+  removeMemberBtnPressed: { opacity: 0.85 },
+  removeMemberBtnText: {
+    fontSize: 14,
+    fontFamily: fonts.semibold,
+    color: colors.error,
+  },
 });

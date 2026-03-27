@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, Image, StyleSheet, Animated } from 'react-native';
 import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
 
-const appLogo = require('../../assets/logo.png');
+const appLogo = require('../../public/logo.png');
 
 interface SplashScreenProps {
   onComplete: () => void;
@@ -26,11 +26,11 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
     <Animated.View style={[styles.container, { opacity: fadeOut }]}>
       <View style={styles.top} />
       <View style={styles.center}>
-        <Image source={appLogo} style={[styles.logoImage, { tintColor: colors.accent }]} resizeMode="contain" />
+        <Image source={appLogo} style={styles.logoImage} resizeMode="contain" />
         <Text style={styles.title}>
-          Double<Text style={styles.titleAccent}>Shot</Text>
+          Ekib<Text style={styles.titleAccent}>io</Text>
         </Text>
-        <Text style={styles.subtitle}>KAHVEYE DAİR HER ŞEY</Text>
+        <Text style={styles.subtitle}>YÖNETİME DAİR HER ŞEY</Text>
       </View>
       <View style={styles.bottom}>
         <Text style={styles.produced}>produced by baes.</Text>
@@ -56,8 +56,8 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   logoImage: {
-    width: 88,
-    height: 88,
+    width: 132,
+    height: 132,
   },
   title: {
     fontSize: 36,

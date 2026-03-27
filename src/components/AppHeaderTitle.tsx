@@ -1,12 +1,12 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
-import { typography, colors } from '../utils/theme';
+import { typography, colors, fonts } from '../utils/theme';
 
-const appLogo = require('../../assets/logo.png');
+const appLogo = require('../../public/logo.png');
 
-const ICON_SIZE = 28;
+const ICON_SIZE = 38;
 
-/** Tüm sekmelerde ve stack ekranlarında üstte görünen "DoubleShot" başlığı + logo. Logo ile yazı birbirine göre dikey ortalanmış. */
+/** Tüm sekmelerde ve stack ekranlarında üstte görünen "Ekibio" başlığı + logo. */
 export function AppHeaderTitle() {
   return (
     <View style={styles.wrap}>
@@ -14,8 +14,8 @@ export function AppHeaderTitle() {
         <Image source={appLogo} style={styles.icon} resizeMode="contain" />
       </View>
       <Text style={styles.textWrap}>
-        <Text style={styles.default}>Double</Text>
-        <Text style={styles.accent}>Shot</Text>
+        <Text style={styles.default}>Ekib</Text>
+        <Text style={styles.accent}>io</Text>
       </Text>
     </View>
   );
@@ -37,19 +37,24 @@ const styles = StyleSheet.create({
     width: ICON_SIZE,
     height: ICON_SIZE,
     borderRadius: 6,
-    tintColor: colors.accent,
   },
   textWrap: {
     ...typography.subtitle,
+    fontSize: 26,
+    fontFamily: fonts.bold,
     lineHeight: ICON_SIZE,
   },
   default: {
     ...typography.subtitle,
+    fontSize: 26,
+    fontFamily: fonts.bold,
     color: colors.textPrimary,
     lineHeight: ICON_SIZE,
   },
   accent: {
     ...typography.subtitle,
+    fontSize: 26,
+    fontFamily: fonts.bold,
     color: colors.accent,
     lineHeight: ICON_SIZE,
   },

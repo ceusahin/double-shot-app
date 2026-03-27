@@ -13,6 +13,8 @@ import {
   deleteShift,
   updateShift,
 } from '../services/shifts';
+import { getTeamBreakTemplates, createBreakTemplate, deleteBreakTemplate } from '../services/breaks';
+import { useAuthStore } from '../store/authStore';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { getTeamMembers } from '../services/teams';
 import { createTeamNotification } from '../services/notifications';
@@ -84,6 +86,8 @@ function getShiftsByDay(shifts: (Shift & { user?: { name?: string; surname?: str
 
 export function ShiftManagementScreen({ route }: Props) {
   const { team } = route.params;
+  const user = useAuthStore((s) => s.user);
+  const isOwner = team.owner_id === user?.id;
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<ShiftTabKey>('tanimlar');
   const [sendingNotif, setSendingNotif] = useState(false);
@@ -105,6 +109,9 @@ export function ShiftManagementScreen({ route }: Props) {
   const [editShiftTemplateId, setEditShiftTemplateId] = useState<string | null>(null);
   const [editShiftUserId, setEditShiftUserId] = useState<string | null>(null);
   const [editShiftSaving, setEditShiftSaving] = useState(false);
+  const [breakName, setBreakName] = useState('');
+  const [breakDuration, setBreakDuration] = useState('15');
+  const [breakSaving, setBreakSaving] = useState(false);
 
   const toggleAssignDate = (d: Date) => {
     const key = d.toDateString();
@@ -139,6 +146,10 @@ export function ShiftManagementScreen({ route }: Props) {
   const { data: members = [] } = useQuery({
     queryKey: ['team-members', team.id],
     queryFn: () => getTeamMembers(team.id),
+  });
+  const { data: breakTemplates = [] } = useQuery({
+    queryKey: ['break-templates', team.id],
+    queryFn: () => getTeamBreakTemplates(team.id),
   });
 
   const shiftsByDay = React.useMemo(
@@ -269,6 +280,7 @@ export function ShiftManagementScreen({ route }: Props) {
   };
 
   const memberOptions = members;
+  const canAssignShifts = templates.length > 0 && memberOptions.length > 0;
 
   const handleDeleteShift = (shift: Shift & { user?: { name?: string; surname?: string } }) => {
     const name = shift.user ? `${shift.user.name ?? ''} ${shift.user.surname ?? ''}`.trim() || 'Vardiya' : 'Vardiya';
@@ -316,6 +328,46 @@ export function ShiftManagementScreen({ route }: Props) {
     } finally {
       setEditShiftSaving(false);
     }
+  };
+
+  const handleCreateBreakTemplate = async () => {
+    if (!isOwner) return;
+    const name = breakName.trim();
+    const mins = Number(breakDuration);
+    if (!name || !Number.isFinite(mins) || mins <= 0) {
+      Alert.alert('Eksik', 'Mola adı ve geçerli süre girin.');
+      return;
+    }
+    setBreakSaving(true);
+    try {
+      await createBreakTemplate(team.id, name, mins);
+      queryClient.invalidateQueries({ queryKey: ['break-templates', team.id] });
+      setBreakName('');
+      setBreakDuration('15');
+    } catch (e) {
+      Alert.alert('Hata', e instanceof Error ? e.message : 'Mola tanımı kaydedilemedi.');
+    } finally {
+      setBreakSaving(false);
+    }
+  };
+
+  const handleDeleteBreakTemplate = (templateId: string, name: string) => {
+    if (!isOwner) return;
+    Alert.alert('Mola sil', `"${name}" mola tanımı silinsin mi?`, [
+      { text: 'İptal', style: 'cancel' },
+      {
+        text: 'Sil',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await deleteBreakTemplate(templateId);
+            queryClient.invalidateQueries({ queryKey: ['break-templates', team.id] });
+          } catch (e) {
+            Alert.alert('Hata', e instanceof Error ? e.message : 'Mola tanımı silinemedi.');
+          }
+        },
+      },
+    ]);
   };
 
   return (
@@ -366,6 +418,40 @@ export function ShiftManagementScreen({ route }: Props) {
             variant="outline"
             style={styles.btn}
           />
+          <Text style={styles.sectionTitle}>Mola tanımları</Text>
+          {breakTemplates.length === 0 ? (
+            <Card>
+              <Text style={styles.placeholder}>Henüz mola tanımı yok.</Text>
+            </Card>
+          ) : (
+            breakTemplates.map((b) => (
+              <Card key={b.id} style={styles.templateCard}>
+                <View style={styles.templateRow}>
+                  <View style={styles.templateInfo}>
+                    <Text style={styles.templateName}>{b.name}</Text>
+                    <Text style={styles.templateTime}>{b.duration_minutes} dk</Text>
+                  </View>
+                  {isOwner ? (
+                    <Pressable
+                      onPress={() => handleDeleteBreakTemplate(b.id, b.name)}
+                      style={({ pressed }) => [styles.templateIconBtn, styles.templateIconBtnDelete, pressed && styles.templateIconBtnPressed]}
+                    >
+                      <Ionicons name="trash-outline" size={20} color={colors.error} />
+                    </Pressable>
+                  ) : null}
+                </View>
+              </Card>
+            ))
+          )}
+          {isOwner ? (
+            <Card>
+              <Input label="Mola adı" value={breakName} onChangeText={setBreakName} placeholder="Örn: Öğle molası" />
+              <Input label="Süre (dakika)" value={breakDuration} onChangeText={setBreakDuration} keyboardType="number-pad" />
+              <Button title="Yeni mola tanımı" onPress={handleCreateBreakTemplate} loading={breakSaving} variant="outline" />
+            </Card>
+          ) : (
+            <Text style={styles.hint}>Sadece ekip lideri yeni mola süresi tanımlayabilir.</Text>
+          )}
         </>
       )}
 
@@ -410,13 +496,23 @@ export function ShiftManagementScreen({ route }: Props) {
             <Text style={styles.planSectionTitle}>Haftalık vardiyalar</Text>
             <Pressable
               onPress={() => {
+                if (!canAssignShifts) {
+                  Alert.alert(
+                    'Eksik bilgi',
+                    'Vardiya eklemek için önce “vardiya tanımı” oluşturun ve ekibe çalışan ekleyin.'
+                  );
+                  return;
+                }
                 setAssignSelectedDateStrings([]);
                 setAssignTemplateId(templates[0]?.id ?? null);
                 setAssignUserId(memberOptions[0]?.user_id ?? null);
                 setShowAssignModal(true);
               }}
-              style={({ pressed }) => [styles.addShiftHeaderBtn, pressed && styles.addShiftHeaderBtnPressed]}
-              disabled={templates.length === 0 || memberOptions.length === 0}
+              style={({ pressed }) => [
+                styles.addShiftHeaderBtn,
+                pressed && styles.addShiftHeaderBtnPressed,
+                !canAssignShifts && styles.addShiftHeaderBtnDisabled,
+              ]}
             >
               <Ionicons name="add" size={18} color={colors.accent} />
               <Text style={styles.addShiftHeaderBtnText}>Vardiya ekle</Text>
@@ -593,7 +689,12 @@ export function ShiftManagementScreen({ route }: Props) {
                       </View>
                       <View style={styles.editDayShiftActions}>
                         <Pressable
-                          onPress={() => openEditShift(s)}
+                          onPress={() => {
+                            // İki modal üst üste bindirince bazı cihazlarda dokunma/görünürlük sorunu çıkabiliyor.
+                            // Düzenleme modalını garanti üst katmana almak için önce gün modalını kapatıyoruz.
+                            setEditingDay(null);
+                            openEditShift(s);
+                          }}
                           style={({ pressed }) => [styles.editDayActionBtn, pressed && styles.editDayActionBtnPressed]}
                         >
                           <Ionicons name="pencil-outline" size={18} color={colors.accent} />
@@ -612,13 +713,23 @@ export function ShiftManagementScreen({ route }: Props) {
                 )}
                 <Pressable
                   onPress={() => {
+                    if (!canAssignShifts) {
+                      Alert.alert(
+                        'Eksik bilgi',
+                        'Vardiya eklemek için önce “vardiya tanımı” oluşturun ve ekibe çalışan ekleyin.'
+                      );
+                      return;
+                    }
+                    // Gün modalı açıkken başka modal açmak dokunma/görünürlüğü etkileyebiliyor.
+                    // Önce gün modalını kapatıp ardından atama modalını açıyoruz.
+                    setEditingDay(null);
                     setAssignSelectedDateStrings([editingDay.toDateString()]);
                     setAssignTemplateId(templates[0]?.id ?? null);
                     setAssignUserId(memberOptions[0]?.user_id ?? null);
                     setShowAssignModal(true);
                   }}
                   style={({ pressed }) => [styles.addShiftHeaderBtn, pressed && styles.addShiftHeaderBtnPressed, styles.editDayAddBtn]}
-                  disabled={templates.length === 0 || memberOptions.length === 0}
+                  // disabled yerine guard ile uyarı gösteriyoruz (kullanıcı neden tıklayamıyor anlaşılsın)
                 >
                   <Ionicons name="add" size={18} color={colors.accent} />
                   <Text style={styles.addShiftHeaderBtnText}>Vardiya ekle</Text>
@@ -846,6 +957,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.accent + '10',
   },
   addShiftHeaderBtnPressed: { opacity: 0.85 },
+  addShiftHeaderBtnDisabled: { opacity: 0.55 },
   addShiftHeaderBtnText: {
     fontSize: 12,
     fontFamily: fonts.medium,
@@ -1005,6 +1117,7 @@ const styles = StyleSheet.create({
   dayChipActive: { borderColor: colors.accent, backgroundColor: 'rgba(212,175,55,0.15)' },
   dayChipText: { fontSize: 12, color: colors.textSecondary },
   dayChipDay: { fontSize: 14, fontWeight: '600', color: colors.textPrimary },
+  dayChipTextActive: { color: colors.accent, fontFamily: fonts.semibold },
   optionRow: { padding: spacing.md, borderRadius: 8, borderWidth: 1, borderColor: colors.border, marginBottom: spacing.xs },
   optionRowActive: { borderColor: colors.accent, backgroundColor: 'rgba(212,175,55,0.1)' },
   optionText: { fontSize: 14, color: colors.textPrimary },

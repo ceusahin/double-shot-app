@@ -119,7 +119,6 @@ export function TimesheetScreen({ route }: Props) {
   const { data: members = [] } = useQuery({
     queryKey: ['team-members', team.id],
     queryFn: () => getTeamMembers(team.id),
-    enabled: mainTab === 'mesai',
   });
 
   useEffect(() => {
@@ -135,7 +134,30 @@ export function TimesheetScreen({ route }: Props) {
   }, [team.id, hourlyRate]);
 
   const logsWithUser = logs as ShiftLogWithUser[];
-  const logsByDay = useMemo(() => getLogsByDay(logsWithUser, selectedWeekDays), [logsWithUser, selectedWeekDays]);
+  const joinedAtByUserId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const m of members) {
+      const joinedMs = new Date(m.joined_at).getTime();
+      if (!Number.isNaN(joinedMs)) {
+        map.set(m.user_id, joinedMs);
+      }
+    }
+    return map;
+  }, [members]);
+
+  // Üye ekipten çıkarılıp tekrar eklendiğinde, eski üyelik dönemine ait logları puantaja katmayız.
+  const effectiveLogs = useMemo(() => {
+    if (joinedAtByUserId.size === 0) return logsWithUser;
+    return logsWithUser.filter((log) => {
+      const joinedMs = joinedAtByUserId.get(log.user_id);
+      if (!joinedMs) return false;
+      const checkInMs = new Date(log.check_in_time).getTime();
+      if (Number.isNaN(checkInMs)) return false;
+      return checkInMs >= joinedMs;
+    });
+  }, [logsWithUser, joinedAtByUserId]);
+
+  const logsByDay = useMemo(() => getLogsByDay(effectiveLogs, selectedWeekDays), [effectiveLogs, selectedWeekDays]);
 
   const wageSummary = useMemo(() => {
     const byUser: Record<string, { totalHours: number; name: string }> = {};
@@ -145,7 +167,7 @@ export function TimesheetScreen({ route }: Props) {
         : 'Üye';
       byUser[m.user_id] = { totalHours: 0, name };
     });
-    logsWithUser.forEach((log) => {
+    effectiveLogs.forEach((log) => {
       if (!log.check_out_time) return;
       const h = hoursBetweenDecimal(log.check_in_time, log.check_out_time);
       if (!byUser[log.user_id]) {
@@ -162,11 +184,10 @@ export function TimesheetScreen({ route }: Props) {
       totalHours,
       pay: totalHours * (parseFloat(hourlyRate) || 0),
     }));
-  }, [members, logsWithUser, hourlyRate]);
+  }, [members, effectiveLogs, hourlyRate]);
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionTitle}>Puantaj Yönetimi</Text>
       <TabBar tabs={TIMESHEET_TABS} activeKey={mainTab} onChange={setMainTab} variant="primary" />
 
       {mainTab === 'puantaj' && (

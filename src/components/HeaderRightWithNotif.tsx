@@ -4,7 +4,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Avatar } from './Avatar';
 import { useAuthStore } from '../store/authStore';
 import { useNotificationModal } from '../context/NotificationModalContext';
-import { navigationRef } from '../navigation/RootNavigator';
+import { navigationRef } from '../navigation/navigationRef';
 import { colors, spacing } from '../utils/theme';
 
 interface HeaderRightWithNotifProps {
