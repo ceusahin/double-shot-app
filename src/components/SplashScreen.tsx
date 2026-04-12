@@ -12,13 +12,14 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
   const [fadeOut] = useState(() => new Animated.Value(1));
 
   useEffect(() => {
+    // Kısa marka gösterimi; uzun süre burada beklemek ilk açılışı gereksiz yavaşlatıyordu.
     const timer = setTimeout(() => {
       Animated.timing(fadeOut, {
         toValue: 0,
         duration: TRANSITION_DURATION,
         useNativeDriver: true,
       }).start(() => onComplete());
-    }, 3000);
+    }, 2000);
     return () => clearTimeout(timer);
   }, [onComplete, fadeOut]);
 

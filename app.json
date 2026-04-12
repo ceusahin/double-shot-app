@@ -4,7 +4,7 @@
     "slug": "ekibio",
     "scheme": "ekibio",
     "version": "1.0.0",
-    "orientation": "portrait",
+    "orientation": "default",
     "icon": "./public/logo.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#1A1A1A",
@@ -17,16 +17,30 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.baesdigital.ekibio",
       "adaptiveIcon": {
         "backgroundColor": "#1A1A1A",
         "foregroundImage": "./public/logo.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
+        "android.permission.READ_MEDIA_IMAGES"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "PORTRAIT"
+        }
+      ],
       "@react-native-community/datetimepicker",
       "expo-notifications",
       "expo-font",
@@ -35,7 +49,23 @@
         {
           "photosPermission": "Profil fotoğrafı eklemek için galeri erişimi gerekir."
         }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Vardiya programı görüntüsünü galerinize kaydetmek için fotoğraf erişimi gerekir.",
+          "savePhotosPermission": "Program görüntüsünü kaydetmek için izin verin.",
+          "granularPermissions": [
+            "photo"
+          ]
+        }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "c5a4e7dc-ec3f-4b8b-a8da-95ed7e86fe6e"
+      }
+    },
+    "owner": "hakodev"
   }
 }

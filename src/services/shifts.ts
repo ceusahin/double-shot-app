@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getBusinessDayStart, getNextBusinessDayStart } from '../utils/businessDay';
 import type { Shift, ShiftTemplate } from '../types';
 
 /** Vardiya tanımları: isim + saat aralığı (örn. Gündüz 09:00–17:00) */
@@ -97,10 +98,17 @@ export async function deleteShift(shiftId: string): Promise<void> {
 /** Vardiyayı günceller: çalışan ve/veya şablon (saat aralığı) değiştirilebilir */
 export async function updateShift(
   shiftId: string,
-  opts: { userId?: string; templateId?: string }
+  opts: { userId?: string; templateId?: string; role?: string }
 ): Promise<void> {
-  const updates: { user_id?: string; start_time?: string; end_time?: string; shift_template_id?: string | null } = {};
+  const updates: {
+    user_id?: string;
+    start_time?: string;
+    end_time?: string;
+    shift_template_id?: string | null;
+    role?: string;
+  } = {};
   if (opts.userId != null) updates.user_id = opts.userId;
+  if (opts.role != null) updates.role = opts.role;
   if (opts.templateId != null) {
     const { data: row } = await supabase.from('shifts').select('team_id, start_time').eq('id', shiftId).single();
     if (!row) throw new Error('Vardiya bulunamadı.');
@@ -189,19 +197,18 @@ export async function getMyShifts(userId: string): Promise<Shift[]> {
   return (data ?? []) as Shift[];
 }
 
-/** Kullanıcının bugün atanmış vardiyaları (start_time bugün içinde). Ana sayfa "Bugünkü vardiyan" için. */
+/** Kullanıcının bugün atanmış vardiyaları (iş günü 06:00 sınırı). Ana sayfa "Bugünkü vardiyan" için. */
 export async function getMyShiftsForToday(userId: string): Promise<Shift[]> {
   const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const tomorrowStart = new Date(todayStart);
-  tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const windowStart = getBusinessDayStart(now);
+  const windowEnd = getNextBusinessDayStart(now);
 
   const { data, error } = await supabase
     .from('shifts')
     .select('*')
     .eq('user_id', userId)
-    .gte('start_time', todayStart.toISOString())
-    .lt('start_time', tomorrowStart.toISOString())
+    .gte('start_time', windowStart.toISOString())
+    .lt('start_time', windowEnd.toISOString())
     .order('start_time', { ascending: true });
 
   if (error) throw error;

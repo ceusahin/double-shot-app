@@ -8,17 +8,14 @@ import { getMyTeams } from '../services/teams';
 import { getOperationTasks, getTodayOperationTaskLogs, setOperationTaskCompleted } from '../services/operations';
 import { supabase } from '../services/supabase';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { useBusinessDayClock } from '../utils/businessDay';
 import type { OperationTask, OperationTaskLog } from '../types';
 
 const WEEK_DAYS = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'] as const;
 
 
 export function OperationsScreen() {
-  const todayIndex = useMemo(() => {
-    const jsIndex = new Date().getDay(); // 0=Paz, 1=Pzt...
-    if (jsIndex === 0) return 6; // Paz
-    return jsIndex - 1; // Pzt=0 ...
-  }, []);
+  const { businessDateKey: todayStr, businessDayOfWeekIndex: todayIndex } = useBusinessDayClock();
 
   const [selectedDayIndex, setSelectedDayIndex] = useState<number>(todayIndex);
   const [activeTab, setActiveTab] = useState<'today' | 'admin'>('today');
@@ -55,11 +52,6 @@ export function OperationsScreen() {
       setActiveTab('today');
     }
   }, [canManage, activeTab]);
-
-  const todayStr = useMemo(
-    () => new Date().toISOString().slice(0, 10),
-    []
-  );
 
   const {
     data: tasks = [],

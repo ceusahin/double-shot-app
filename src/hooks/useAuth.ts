@@ -52,8 +52,9 @@ export function useAuth() {
           email: meta.email,
         });
       }
+      setUser(profile ?? null);
       if (profile) {
-        await Promise.all([
+        void Promise.all([
           queryClient.prefetchQuery({
             queryKey: ['my-roles', profile.id],
             queryFn: () => getMyRolesSummary(profile.id),
@@ -64,7 +65,6 @@ export function useAuth() {
           }),
         ]).catch(() => {});
       }
-      setUser(profile ?? null);
     } catch {
       setUser(null);
     }

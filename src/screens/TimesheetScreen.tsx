@@ -8,6 +8,12 @@ import { Card, TabBar, Input } from '../components';
 import { getTeamShiftLogs, type ShiftLogWithUser } from '../services/shifts';
 import { getTeamMembers } from '../services/teams';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import {
+  getCalendarColumnBusinessKey,
+  getTimestampBusinessDateKey,
+  getBusinessTodayColumnIndex,
+  useBusinessDayClock,
+} from '../utils/businessDay';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 const HOURLY_RATE_STORAGE_KEY = 'timesheet-hourly-rate';
@@ -75,8 +81,10 @@ function hoursBetween(startIso: string, endIso: string | null): string {
 function getLogsByDay(logs: ShiftLogWithUser[], weekDays: Date[]): Record<string, ShiftLogWithUser[]> {
   const byDay: Record<string, ShiftLogWithUser[]> = {};
   weekDays.forEach((d) => {
-    const key = d.toDateString();
-    byDay[key] = (logs ?? []).filter((log) => new Date(log.check_in_time).toDateString() === key);
+    const key = getCalendarColumnBusinessKey(d);
+    byDay[key] = (logs ?? []).filter(
+      (log) => getTimestampBusinessDateKey(log.check_in_time) === key
+    );
   });
   return byDay;
 }
@@ -91,15 +99,18 @@ function hoursBetweenDecimal(startIso: string, endIso: string | null): number {
 
 export function TimesheetScreen({ route }: Props) {
   const { team } = route.params;
+  const { businessDateKey } = useBusinessDayClock();
   const [mainTab, setMainTab] = useState<TimesheetTabKey>('puantaj');
   const [hourlyRate, setHourlyRate] = useState('');
   const [selectedWeekStart, setSelectedWeekStart] = useState<Date>(() => getCurrentWeekMonday());
   const selectedWeekDays = useMemo(() => getDaysForWeek(selectedWeekStart), [selectedWeekStart]);
-  const todayKey = new Date().toDateString();
-  const todayIndex = (new Date().getDay() + 6) % 7;
-  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(() => todayIndex);
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number>(() => {
+    const days = getDaysForWeek(getCurrentWeekMonday());
+    const idx = getBusinessTodayColumnIndex(days, new Date());
+    return idx >= 0 ? idx : 0;
+  });
   const selectedDay = selectedWeekDays[Math.min(selectedDayIndex, 6)] ?? selectedWeekDays[0];
-  const selectedDayKey = selectedDay?.toDateString() ?? todayKey;
+  const selectedDayKey = selectedDay ? getCalendarColumnBusinessKey(selectedDay) : businessDateKey;
   const weekStart = useMemo(() => {
     const d = new Date(selectedWeekStart);
     d.setHours(0, 0, 0, 0);
@@ -225,8 +236,11 @@ export function TimesheetScreen({ route }: Props) {
       </View>
       <Pressable
         onPress={() => {
-          setSelectedWeekStart(getCurrentWeekMonday());
-          setSelectedDayIndex(todayIndex);
+          const mon = getCurrentWeekMonday();
+          setSelectedWeekStart(mon);
+          const days = getDaysForWeek(mon);
+          const idx = getBusinessTodayColumnIndex(days, new Date());
+          setSelectedDayIndex(idx >= 0 ? idx : 0);
         }}
         style={styles.thisWeekChip}
       >
@@ -237,7 +251,7 @@ export function TimesheetScreen({ route }: Props) {
       <View style={styles.dayChipsWrap}>
         {selectedWeekDays.map((day, i) => {
           const isSelected = i === selectedDayIndex;
-          const isToday = day.toDateString() === todayKey;
+          const isToday = getCalendarColumnBusinessKey(day) === businessDateKey;
           return (
             <Pressable
               key={day.toISOString()}
@@ -277,20 +291,20 @@ export function TimesheetScreen({ route }: Props) {
         <View
           style={[
             styles.selectedDayCard,
-            selectedDayKey === todayKey && styles.selectedDayCardToday,
+            selectedDayKey === businessDateKey && styles.selectedDayCardToday,
           ]}
         >
           <View style={styles.dayCardHeader}>
             <Text
               style={[
                 styles.dayCardTitle,
-                selectedDayKey === todayKey && styles.dayCardTitleToday,
+                selectedDayKey === businessDateKey && styles.dayCardTitleToday,
               ]}
             >
               {WEEKDAY_LABELS[selectedDay.getDay()]}, {selectedDay.getDate()}{' '}
               {selectedDay.toLocaleDateString('tr-TR', { month: 'short' })}
             </Text>
-            {selectedDayKey === todayKey && (
+            {selectedDayKey === businessDateKey && (
               <View style={styles.todayBadge}>
                 <Text style={styles.todayBadgeText}>Bugün</Text>
               </View>

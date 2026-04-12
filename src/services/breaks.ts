@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { getBusinessDayStart, getNextBusinessDayStart } from '../utils/businessDay';
 
 export interface ShiftBreakTemplate {
   id: string;
@@ -124,10 +125,10 @@ export async function endBreak(breakLogId: string): Promise<void> {
   if (error) throw error;
 }
 
-export async function getTeamBreakLogsForDate(teamId: string, date: Date): Promise<ShiftBreakLog[]> {
-  const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
-  const end = new Date(start);
-  end.setDate(end.getDate() + 1);
+/** `at` anındaki iş günü: 06:00–ertesi gün 06:00 (yerel). */
+export async function getTeamBreakLogsForDate(teamId: string, at: Date = new Date()): Promise<ShiftBreakLog[]> {
+  const start = getBusinessDayStart(at);
+  const end = getNextBusinessDayStart(at);
   const { data, error } = await supabase
     .from('shift_break_logs')
     .select(`

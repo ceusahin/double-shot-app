@@ -17,8 +17,19 @@ import { getTeamBreakTemplates, createBreakTemplate, deleteBreakTemplate } from 
 import { useAuthStore } from '../store/authStore';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { getTeamMembers } from '../services/teams';
+import { listMembersWithRoles } from '../services/rbac';
 import { createTeamNotification } from '../services/notifications';
 import { colors, spacing, typography, fonts, borderRadius } from '../utils/theme';
+import {
+  buildOrgRoleByUserId,
+  resolveShiftRoleLabel,
+  teamMemberRoleToStoredShiftRole,
+} from '../utils/shiftRoleLabel';
+import {
+  getCalendarColumnBusinessKey,
+  getTimestampBusinessDateKey,
+  useBusinessDayClock,
+} from '../utils/businessDay';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 import type { Team } from '../types';
 import type { Shift, ShiftTemplate } from '../types';
@@ -78,14 +89,15 @@ function getShiftsByDay(shifts: (Shift & { user?: { name?: string; surname?: str
   const list = shifts ?? [];
   const byDay: Record<string, (Shift & { user?: { name?: string; surname?: string } })[]> = {};
   weekDays.forEach((d) => {
-    const key = d.toDateString();
-    byDay[key] = list.filter((s) => new Date(s.start_time).toDateString() === key);
+    const key = getCalendarColumnBusinessKey(d);
+    byDay[key] = list.filter((s) => getTimestampBusinessDateKey(s.start_time) === key);
   });
   return byDay;
 }
 
 export function ShiftManagementScreen({ route }: Props) {
   const { team } = route.params;
+  const { businessDateKey } = useBusinessDayClock();
   const user = useAuthStore((s) => s.user);
   const isOwner = team.owner_id === user?.id;
   const queryClient = useQueryClient();
@@ -147,6 +159,16 @@ export function ShiftManagementScreen({ route }: Props) {
     queryKey: ['team-members', team.id],
     queryFn: () => getTeamMembers(team.id),
   });
+  const orgId = team.organization_id ?? undefined;
+  const { data: orgMembersWithRoles = [] } = useQuery({
+    queryKey: ['org-members-with-roles', orgId],
+    queryFn: () => listMembersWithRoles(orgId!),
+    enabled: !!orgId,
+  });
+  const rbacRoleByUserId = React.useMemo(
+    () => buildOrgRoleByUserId(orgMembersWithRoles),
+    [orgMembersWithRoles]
+  );
   const { data: breakTemplates = [] } = useQuery({
     queryKey: ['break-templates', team.id],
     queryFn: () => getTeamBreakTemplates(team.id),
@@ -235,10 +257,18 @@ export function ShiftManagementScreen({ route }: Props) {
     }
     setAssignSaving(true);
     try {
+      const assignMember = members.find((m) => m.user_id === assignUserId);
+      const roleLabel = teamMemberRoleToStoredShiftRole(
+        assignMember?.role,
+        assignUserId,
+        team.owner_id,
+        rbacRoleByUserId[assignUserId]
+      );
       for (const date of datesToAssign) {
-        await createShiftFromTemplate(team.id, assignTemplateId, assignUserId, date);
+        await createShiftFromTemplate(team.id, assignTemplateId, assignUserId, date, roleLabel);
       }
       queryClient.invalidateQueries({ queryKey: ['team-shifts', team.id] });
+      queryClient.invalidateQueries({ queryKey: ['my-shifts-today'] });
       setShowAssignModal(false);
       setAssignTemplateId(null);
       setAssignUserId(null);
@@ -296,6 +326,7 @@ export function ShiftManagementScreen({ route }: Props) {
             try {
               await deleteShift(shift.id);
               queryClient.invalidateQueries({ queryKey: ['team-shifts', team.id] });
+              queryClient.invalidateQueries({ queryKey: ['my-shifts-today'] });
             } catch (e) {
               Alert.alert('Hata', e instanceof Error ? e.message : 'Vardiya silinemedi.');
             }
@@ -319,8 +350,20 @@ export function ShiftManagementScreen({ route }: Props) {
     }
     setEditShiftSaving(true);
     try {
-      await updateShift(editingShift.id, { userId: editShiftUserId, templateId: editShiftTemplateId });
+      const editMember = members.find((m) => m.user_id === editShiftUserId);
+      const roleLabel = teamMemberRoleToStoredShiftRole(
+        editMember?.role,
+        editShiftUserId,
+        team.owner_id,
+        rbacRoleByUserId[editShiftUserId]
+      );
+      await updateShift(editingShift.id, {
+        userId: editShiftUserId,
+        templateId: editShiftTemplateId,
+        role: roleLabel,
+      });
       queryClient.invalidateQueries({ queryKey: ['team-shifts', team.id] });
+      queryClient.invalidateQueries({ queryKey: ['my-shifts-today'] });
       setEditingShift(null);
       Alert.alert('Tamam', 'Vardiya güncellendi.');
     } catch (e) {
@@ -521,14 +564,13 @@ export function ShiftManagementScreen({ route }: Props) {
           {isLoading ? (
             <View style={styles.dayCard}><Text style={styles.placeholder}>Yükleniyor…</Text></View>
           ) : (
-            (() => {
-              const todayKey = new Date().toDateString();
-              return selectedWeekDays.map((day) => {
-                const dayShifts = shiftsByDay[day.toDateString()] ?? [];
+            selectedWeekDays.map((day) => {
+                const colKey = getCalendarColumnBusinessKey(day);
+                const dayShifts = shiftsByDay[colKey] ?? [];
                 const dayName = WEEKDAY_LABELS[day.getDay()];
                 const dateNum = day.getDate();
                 const monthShort = day.toLocaleDateString('tr-TR', { month: 'short' });
-                const isToday = day.toDateString() === todayKey;
+                const isToday = colKey === businessDateKey;
                 return (
                   <View key={day.toISOString()} style={[styles.dayCard, isToday && styles.dayCardToday]}>
                     <View style={styles.dayCardHeader}>
@@ -563,11 +605,17 @@ export function ShiftManagementScreen({ route }: Props) {
                             <Text style={styles.shiftRowName}>
                               {s.user ? `${s.user.name ?? ''} ${s.user.surname ?? ''}`.trim() || 'Üye' : 'Üye'}
                             </Text>
-                            {s.role ? (
-                              <View style={styles.shiftRoleBadge}>
-                                <Text style={styles.shiftRoleBadgeText}>{s.role}</Text>
-                              </View>
-                            ) : null}
+                            <View style={styles.shiftRoleBadge}>
+                              <Text style={styles.shiftRoleBadgeText}>
+                                {resolveShiftRoleLabel(
+                                  s.user_id,
+                                  team.owner_id,
+                                  members,
+                                  s.role,
+                                  rbacRoleByUserId[s.user_id]
+                                )}
+                              </Text>
+                            </View>
                           </View>
                           <Text style={styles.shiftRowTime}>
                             {formatTime(s.start_time)} – {formatTime(s.end_time)}
@@ -578,8 +626,7 @@ export function ShiftManagementScreen({ route }: Props) {
                   )}
                 </View>
                 );
-              });
-            })()
+              })
           )}
 
           <View style={styles.notifySection}>
@@ -667,21 +714,27 @@ export function ShiftManagementScreen({ route }: Props) {
             {editingDay && (
               <>
                 <Text style={styles.modalLabel}>Vardiyalar</Text>
-                {(shiftsByDay[editingDay.toDateString()] ?? []).length === 0 ? (
+                {(shiftsByDay[getCalendarColumnBusinessKey(editingDay)] ?? []).length === 0 ? (
                   <Text style={styles.placeholder}>Bu güne atanmış vardiya yok.</Text>
                 ) : (
-                  (shiftsByDay[editingDay.toDateString()] ?? []).map((s) => (
+                  (shiftsByDay[getCalendarColumnBusinessKey(editingDay)] ?? []).map((s) => (
                     <View key={s.id} style={styles.editDayShiftRow}>
                       <View style={styles.editDayShiftInfo}>
                         <View style={styles.shiftRowNameRow}>
                           <Text style={styles.shiftRowName}>
                             {s.user ? `${s.user.name ?? ''} ${s.user.surname ?? ''}`.trim() || 'Üye' : 'Üye'}
                           </Text>
-                          {s.role ? (
-                            <View style={styles.shiftRoleBadge}>
-                              <Text style={styles.shiftRoleBadgeText}>{s.role}</Text>
-                            </View>
-                          ) : null}
+                          <View style={styles.shiftRoleBadge}>
+                            <Text style={styles.shiftRoleBadgeText}>
+                              {resolveShiftRoleLabel(
+                                s.user_id,
+                                team.owner_id,
+                                members,
+                                s.role,
+                                rbacRoleByUserId[s.user_id]
+                              )}
+                            </Text>
+                          </View>
                         </View>
                         <Text style={styles.shiftRowTime}>
                           {formatTime(s.start_time)} – {formatTime(s.end_time)}

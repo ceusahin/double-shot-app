@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Pressable, Platform, Modal } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
 import { RouteProp } from '@react-navigation/native';
@@ -10,6 +11,14 @@ import { getTeamMembers } from '../services/teams';
 import { getTeamMembersOnShift, getTeamShiftLogs } from '../services/shifts';
 import { getTeamBreakLogsForDate } from '../services/breaks';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import {
+  useBusinessDayClock,
+  getBusinessDayStart,
+  getNextBusinessDayStart,
+  getBusinessDateKey,
+  getBusinessDateAnchor,
+  toBusinessQueryReference,
+} from '../utils/businessDay';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'ShiftDetail'> };
@@ -49,8 +58,28 @@ export function ShiftDetailScreen({ route }: Props) {
   const user = useAuthStore((s) => s.user);
   const [shiftTab, setShiftTab] = useState<ShiftTabKey>('on_shift');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
-  const today = useMemo(() => new Date(), []);
+  const [managerViewDate, setManagerViewDate] = useState<Date | null>(null);
+  const [datePickerOpen, setDatePickerOpen] = useState(false);
+  const [pickerDraft, setPickerDraft] = useState(() => new Date());
+  const { snapshot } = useBusinessDayClock();
   const isManager = team.role === 'MANAGER' || team.owner_id === user?.id;
+
+  const effectiveSnapshot = useMemo(() => {
+    if (!isManager || managerViewDate == null) return snapshot;
+    return toBusinessQueryReference(managerViewDate);
+  }, [isManager, managerViewDate, snapshot]);
+
+  const viewedBusinessDateKey = getBusinessDateKey(effectiveSnapshot);
+  const businessDateAnchor = useMemo(() => getBusinessDateAnchor(effectiveSnapshot), [effectiveSnapshot]);
+
+  const useLivePresence = isManager && managerViewDate === null;
+
+  const pickerMinDate = useMemo(() => {
+    const d = new Date();
+    d.setFullYear(d.getFullYear() - 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
 
   const { data: members = [] } = useQuery({
     queryKey: ['team-members', team.id],
@@ -59,35 +88,35 @@ export function ShiftDetailScreen({ route }: Props) {
   const { data: onShiftList = [] } = useQuery({
     queryKey: ['team-members-on-shift', team.id],
     queryFn: () => getTeamMembersOnShift(team.id),
-    refetchInterval: 15000,
+    refetchInterval: useLivePresence ? 15000 : false,
+    enabled: useLivePresence,
   });
   const { data: breakLogs = [] } = useQuery({
-    queryKey: ['team-break-logs', team.id, today.toDateString()],
-    queryFn: () => getTeamBreakLogsForDate(team.id, today),
-    refetchInterval: 3000,
+    queryKey: ['team-break-logs', team.id, viewedBusinessDateKey],
+    queryFn: () => getTeamBreakLogsForDate(team.id, effectiveSnapshot),
+    refetchInterval: isManager ? (useLivePresence ? 3000 : false) : 3000,
     refetchOnMount: 'always',
   });
 
-  const dayStart = useMemo(() => {
-    const d = new Date(today);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, [today]);
+  const dayStart = useMemo(() => getBusinessDayStart(effectiveSnapshot), [effectiveSnapshot]);
   const dayEndInclusive = useMemo(() => {
-    const d = new Date(dayStart);
-    d.setDate(d.getDate() + 1);
-    // getTeamShiftLogs uses .lte, bu yüzden "ertesi gün 00:00:00 - 1ms"
-    d.setMilliseconds(d.getMilliseconds() - 1);
-    return d;
-  }, [dayStart]);
+    const end = getNextBusinessDayStart(effectiveSnapshot);
+    end.setMilliseconds(end.getMilliseconds() - 1);
+    return end;
+  }, [effectiveSnapshot]);
 
   const { data: shiftLogs = [] } = useQuery({
-    queryKey: ['team-shift-logs', team.id, dayStart.toISOString()],
+    queryKey: ['team-shift-logs', team.id, viewedBusinessDateKey],
     queryFn: () => getTeamShiftLogs(team.id, dayStart, dayEndInclusive),
-    refetchInterval: 15000,
+    refetchInterval: isManager ? (useLivePresence ? 15000 : false) : 15000,
   });
 
-  const onShiftUserIds = useMemo(() => new Set(onShiftList.map((x) => x.user_id)), [onShiftList]);
+  const onShiftUserIds = useMemo(() => {
+    if (isManager && managerViewDate != null) {
+      return new Set(shiftLogs.map((x) => x.user_id));
+    }
+    return new Set(onShiftList.map((x) => x.user_id));
+  }, [isManager, managerViewDate, shiftLogs, onShiftList]);
   const membersOnShift = useMemo(() => members.filter((m) => onShiftUserIds.has(m.user_id)), [members, onShiftUserIds]);
   const membersOffShift = useMemo(() => members.filter((m) => !onShiftUserIds.has(m.user_id)), [members, onShiftUserIds]);
   const displayedMembers = useMemo(() => {
@@ -148,10 +177,112 @@ export function ShiftDetailScreen({ route }: Props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
       <View style={styles.heroCard}>
         <Text style={styles.heroTitle}>Vardiya Detayı</Text>
-        <Text style={styles.heroDate}>
-          {today.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
-        </Text>
       </View>
+
+      {isManager ? (
+        <Card style={styles.datePickCard}>
+          <View style={styles.datePickRow}>
+            <View style={styles.datePickTextCol}>
+              <Text style={styles.datePickLabel}>İncelenen iş günü</Text>
+              {managerViewDate === null ? (
+                <>
+                  <Text style={styles.datePickValue}>
+                    {businessDateAnchor.toLocaleDateString('tr-TR', {
+                      day: 'numeric',
+                      month: 'long',
+                    })}
+                  </Text>
+                  <Text style={styles.datePickHint}>Bugün</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.datePickValue}>
+                    {toBusinessQueryReference(managerViewDate).toLocaleDateString('tr-TR', {
+                      day: 'numeric',
+                      month: 'long',
+                      year: 'numeric',
+                    })}
+                  </Text>
+                  <Text style={styles.datePickHint}>Seçilen tarih için kayıtlar</Text>
+                </>
+              )}
+            </View>
+            <View style={styles.datePickActions}>
+              {managerViewDate !== null ? (
+                <Pressable
+                  onPress={() => setManagerViewDate(null)}
+                  style={({ pressed }) => [styles.datePickBtnSecondary, pressed && styles.datePickBtnPressed]}
+                >
+                  <Text style={styles.datePickBtnSecondaryText}>Bugüne dön</Text>
+                </Pressable>
+              ) : null}
+              <Pressable
+                onPress={() => {
+                  setPickerDraft(managerViewDate ?? businessDateAnchor);
+                  setDatePickerOpen(true);
+                }}
+                style={({ pressed }) => [styles.datePickBtn, pressed && styles.datePickBtnPressed]}
+              >
+                <Ionicons name="calendar-outline" size={18} color={colors.bgDark} />
+                <Text style={styles.datePickBtnText}>Tarih seç</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Card>
+      ) : null}
+
+      {datePickerOpen && Platform.OS === 'android' ? (
+        <DateTimePicker
+          value={pickerDraft}
+          mode="date"
+          display="default"
+          maximumDate={new Date()}
+          minimumDate={pickerMinDate}
+          onChange={(event, selected) => {
+            setDatePickerOpen(false);
+            if (event.type === 'dismissed') return;
+            if (selected) setManagerViewDate(selected);
+          }}
+        />
+      ) : null}
+
+      {datePickerOpen && Platform.OS === 'ios' ? (
+        <Modal transparent animationType="fade" visible onRequestClose={() => setDatePickerOpen(false)}>
+          <Pressable style={styles.pickerBackdrop} onPress={() => setDatePickerOpen(false)} />
+          <View style={styles.pickerSheet}>
+            <Text style={styles.pickerTitle}>Tarih seçin</Text>
+            <DateTimePicker
+              value={pickerDraft}
+              mode="date"
+              display="inline"
+              themeVariant="dark"
+              maximumDate={new Date()}
+              minimumDate={pickerMinDate}
+              onChange={(_, selected) => {
+                if (selected) setPickerDraft(selected);
+              }}
+              style={styles.pickerIos}
+            />
+            <View style={styles.pickerActions}>
+              <Pressable
+                onPress={() => setDatePickerOpen(false)}
+                style={({ pressed }) => [styles.pickerActionBtn, pressed && styles.datePickBtnPressed]}
+              >
+                <Text style={styles.pickerActionCancel}>İptal</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => {
+                  setManagerViewDate(pickerDraft);
+                  setDatePickerOpen(false);
+                }}
+                style={({ pressed }) => [styles.pickerActionBtnPrimary, pressed && styles.datePickBtnPressed]}
+              >
+                <Text style={styles.pickerActionOk}>Tamam</Text>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
+      ) : null}
 
       {isManager ? (
         <View style={styles.metricsRow}>
@@ -260,7 +391,9 @@ export function ShiftDetailScreen({ route }: Props) {
                       <Text style={styles.breaksTitle}>Mola Detayları</Text>
                     </View>
                     {myBreaks.length === 0 ? (
-                      <Text style={styles.placeholderSmall}>Bugün mola kaydı yok.</Text>
+                      <Text style={styles.placeholderSmall}>
+                        {managerViewDate != null ? 'Bu iş gününde mola kaydı yok.' : 'Bugün mola kaydı yok.'}
+                      </Text>
                     ) : (
                       myBreaks.map((b, idx) => {
                         const overrun = getOverrunLabel(b.planned_end_at, b.ended_at);
@@ -311,6 +444,90 @@ const styles = StyleSheet.create({
   },
   heroDate: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
   heroTitle: { fontSize: 26, color: colors.textPrimary, fontFamily: fonts.bold, letterSpacing: 0.2 },
+  datePickCard: { marginBottom: spacing.sm, borderRadius: borderRadius.lg },
+  datePickRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  datePickTextCol: { flex: 1, minWidth: 0 },
+  datePickLabel: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  datePickValue: {
+    fontSize: 17,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    marginBottom: 4,
+  },
+  datePickHint: { fontSize: 11, color: colors.textMuted, lineHeight: 16 },
+  datePickActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexShrink: 0 },
+  datePickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: colors.accent,
+    paddingVertical: 10,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+  },
+  datePickBtnText: { fontSize: 13, fontFamily: fonts.semibold, color: colors.bgDark },
+  datePickBtnSecondary: {
+    paddingVertical: 10,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  datePickBtnSecondaryText: { fontSize: 12, fontFamily: fonts.semibold, color: colors.textSecondary },
+  datePickBtnPressed: { opacity: 0.88 },
+  pickerBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  pickerSheet: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    top: '18%',
+    backgroundColor: colors.surface,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    maxHeight: '70%',
+  },
+  pickerTitle: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    marginBottom: spacing.sm,
+    textAlign: 'center',
+  },
+  pickerIos: { alignSelf: 'stretch' },
+  pickerActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: spacing.md,
+    marginTop: spacing.md,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  pickerActionBtn: { paddingVertical: spacing.sm, paddingHorizontal: spacing.md },
+  pickerActionBtnPrimary: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.accent,
+    borderRadius: borderRadius.md,
+  },
+  pickerActionCancel: { fontSize: 15, color: colors.textSecondary, fontFamily: fonts.medium },
+  pickerActionOk: { fontSize: 15, color: colors.bgDark, fontFamily: fonts.semibold },
   metricsRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.sm },
   metricCard: {
     flex: 1,

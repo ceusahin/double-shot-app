@@ -5,6 +5,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, TabBar, Avatar } from '../components';
+import { TeamScheduleTableModal } from '../components/TeamScheduleTableModal';
 import { useNotificationModal } from '../context/NotificationModalContext';
 import { useAuthStore } from '../store/authStore';
 import { listMembersWithRoles } from '../services/rbac';
@@ -17,17 +18,17 @@ import { getTeamShifts } from '../services/shifts';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
 import { subscriptionDaysRemaining } from '../utils/subscriptionPeriod';
+import {
+  getCalendarColumnBusinessKey,
+  getTimestampBusinessDateKey,
+  getBusinessTodayColumnIndex,
+  useBusinessDayClock,
+} from '../utils/businessDay';
+import { buildOrgRoleByUserId, resolveShiftRoleLabel } from '../utils/shiftRoleLabel';
 import type { Team, Shift } from '../types';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 const WEEKDAY_LABELS = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
-
-function rbacRoleDisplayName(
-  memberRoles: { role?: { name?: string } }[] | undefined
-): string | null {
-  const name = memberRoles?.[0]?.role?.name?.trim();
-  return name || null;
-}
 
 function getDaysForWeek(mondayOfWeek: Date): Date[] {
   const year = mondayOfWeek.getFullYear();
@@ -46,8 +47,8 @@ function getShiftsByDay(
 ): Record<string, (Shift & { user?: { name?: string; surname?: string } })[]> {
   const byDay: Record<string, (Shift & { user?: { name?: string; surname?: string } })[]> = {};
   weekDays.forEach((d) => {
-    const key = d.toDateString();
-    byDay[key] = (shifts ?? []).filter((s) => new Date(s.start_time).toDateString() === key);
+    const key = getCalendarColumnBusinessKey(d);
+    byDay[key] = (shifts ?? []).filter((s) => getTimestampBusinessDateKey(s.start_time) === key);
   });
   return byDay;
 }
@@ -82,6 +83,19 @@ const INVITE_DURATIONS = [
 function formatShiftTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function formatWeekDayDateLabel(day: Date): string {
+  const wd = WEEKDAY_LABELS[day.getDay()];
+  return `${wd}, ${day.getDate()} ${day.toLocaleDateString('tr-TR', { month: 'short' })}`;
+}
+
+function isSameWeekMonday(a: Date, b: Date): boolean {
+  return (
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate()
+  );
 }
 
 function getCurrentWeekMonday(): Date {
@@ -142,15 +156,24 @@ function TeamSubscriptionBanner({ teamName, endsAtIso }: { teamName: string; end
 export function TeamDetailScreen({ route }: Props) {
   const navigation = useNavigation<Nav>();
   const { team } = route.params;
+  const { businessDateKey } = useBusinessDayClock();
   const user = useAuthStore((s) => s.user);
   const isManager = team.role === 'MANAGER' || team.owner_id === user?.id;
   const [activeTab, setActiveTab] = useState<TeamTabKey>('genel');
   const [selectedWeekStart, setSelectedWeekStart] = useState<Date>(() => getCurrentWeekMonday());
+  const [teamScheduleDayIndex, setTeamScheduleDayIndex] = useState(() => {
+    const mon = getCurrentWeekMonday();
+    const days = getDaysForWeek(mon);
+    const idx = getBusinessTodayColumnIndex(days, new Date());
+    return idx >= 0 ? idx : 0;
+  });
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [inviteDurationMinutes, setInviteDurationMinutes] = useState(60);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteLoading, setInviteLoading] = useState(false);
   const [leaveLoading, setLeaveLoading] = useState(false);
+  const [myShiftsSectionOpen, setMyShiftsSectionOpen] = useState(true);
+  const [teamScheduleFullscreenOpen, setTeamScheduleFullscreenOpen] = useState(false);
   const queryClient = useQueryClient();
   const { setCurrentTeamId } = useNotificationModal();
 
@@ -300,26 +323,49 @@ export function TeamDetailScreen({ route }: Props) {
     enabled: !!organizationId,
   });
 
-  const rbacRoleByUserId = React.useMemo(() => {
-    const map: Record<string, string> = {};
-    for (const row of orgMembersWithRoles) {
-      const label = rbacRoleDisplayName(row.member_roles);
-      if (label) map[row.user_id] = label;
-    }
-    return map;
-  }, [orgMembersWithRoles]);
+  const rbacRoleByUserId = React.useMemo(
+    () => buildOrgRoleByUserId(orgMembersWithRoles),
+    [orgMembersWithRoles]
+  );
 
   const selectedWeekDays = React.useMemo(() => getDaysForWeek(selectedWeekStart), [selectedWeekStart]);
   const { data: shifts = [], isLoading: shiftsLoading } = useQuery({
     queryKey: ['team-shifts', team.id, selectedWeekStart.toISOString()],
     queryFn: () => getTeamShifts(team.id, selectedWeekStart),
-    enabled: activeTab === 'vardiya',
+    enabled: activeTab === 'vardiya' || teamScheduleFullscreenOpen,
   });
   const shiftsByDay = React.useMemo(
     () =>
       getShiftsByDay(shifts as (Shift & { user?: { name?: string; surname?: string } })[], selectedWeekDays),
     [shifts, selectedWeekDays]
   );
+
+  const myShiftsThisWeek = React.useMemo(() => {
+    const uid = user?.id;
+    if (!uid) return [] as (Shift & { user?: { name?: string; surname?: string } })[];
+    return (shifts as (Shift & { user?: { name?: string; surname?: string } })[])
+      .filter((s) => s.user_id === uid)
+      .sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+  }, [shifts, user?.id]);
+
+  /** Bu hafta vardiya atanmamış gün sayısı (OFF; resmi izin anlamına gelmez). */
+  const myWeekOffGunSayisi = React.useMemo(() => {
+    const withShift = new Set(
+      myShiftsThisWeek.map((s) => getTimestampBusinessDateKey(s.start_time))
+    );
+    return Math.max(0, 7 - withShift.size);
+  }, [myShiftsThisWeek]);
+
+  useEffect(() => {
+    const days = getDaysForWeek(selectedWeekStart);
+    const currentMon = getCurrentWeekMonday();
+    if (isSameWeekMonday(selectedWeekStart, currentMon)) {
+      const idx = getBusinessTodayColumnIndex(days, new Date());
+      setTeamScheduleDayIndex(idx >= 0 ? idx : 0);
+    } else {
+      setTeamScheduleDayIndex(0);
+    }
+  }, [selectedWeekStart]);
 
   const openManagerCard = (key: (typeof TEAM_FEATURE_CARDS)[number]['key']) => {
     if (key === 'team_management') {
@@ -556,6 +602,134 @@ export function TeamDetailScreen({ route }: Props) {
 
       {activeTab === 'vardiya' && (
         <>
+
+          <View style={styles.myShiftsCollapsibleWrap}>
+            <Pressable
+              onPress={() => setMyShiftsSectionOpen((o) => !o)}
+              style={({ pressed }) => [
+                styles.myShiftsSectionHeader,
+                pressed && styles.myShiftsSectionHeaderPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: myShiftsSectionOpen }}
+              accessibilityLabel="Bu hafta sizin vardiyalarınız"
+            >
+              <View style={styles.myShiftsSectionHeaderText}>
+                <Text style={styles.myShiftsSectionTitle}>Bu hafta sizin vardiyalarınız</Text>
+                {shiftsLoading ? (
+                  <Text style={styles.myShiftsSectionSummary}>Yükleniyor…</Text>
+                ) : (
+                  <Text style={styles.myShiftsSectionSummary}>
+                    {myShiftsThisWeek.length === 0
+                      ? '7 gün listelenir · Bu hafta vardiya yok'
+                      : `${myShiftsThisWeek.length} vardiya · ${myWeekOffGunSayisi} günde OFF`}
+                  </Text>
+                )}
+              </View>
+              <Ionicons
+                name={myShiftsSectionOpen ? 'chevron-up' : 'chevron-down'}
+                size={22}
+                color={colors.textSecondary}
+              />
+            </Pressable>
+            {myShiftsSectionOpen ? (
+              <Card padded={false} style={styles.vardiyaMyCardOpen}>
+                {shiftsLoading ? (
+                  <Text style={styles.placeholder}>Yükleniyor…</Text>
+                ) : (
+                  <>
+                    <Text style={styles.myWeekListHint}>
+                      Haftanın her günü listelenir. Vardiya atanmamış günler OFF gösterilir (resmi izin değildir).
+                      Bugünün iş günü vurgulanır.
+                    </Text>
+                    {selectedWeekDays.map((day) => {
+                      const colKey = getCalendarColumnBusinessKey(day);
+                      const dayShifts = myShiftsThisWeek.filter(
+                        (s) => getTimestampBusinessDateKey(s.start_time) === colKey
+                      );
+                      const isBizToday = colKey === businessDateKey;
+                      const isOff = dayShifts.length === 0;
+                      return (
+                        <View
+                          key={colKey}
+                          style={[
+                            styles.myWeekDayRow,
+                            isBizToday && styles.myWeekDayRowToday,
+                            isOff && !isBizToday && styles.myWeekDayRowOff,
+                          ]}
+                        >
+                          <View style={styles.myWeekDayRowTop}>
+                            <Text
+                              style={[
+                                styles.myWeekDayTitle,
+                                isBizToday && styles.myWeekDayTitleToday,
+                              ]}
+                            >
+                              {formatWeekDayDateLabel(day)}
+                            </Text>
+                            <View style={styles.myWeekDayBadges}>
+                              {isBizToday ? (
+                                <View style={styles.myWeekTodayBadge}>
+                                  <Text style={styles.myWeekTodayBadgeText}>Bugün</Text>
+                                </View>
+                              ) : null}
+                              {isOff ? (
+                                <View style={styles.myWeekOffBadge}>
+                                  <Text style={styles.myWeekOffBadgeText}>OFF</Text>
+                                </View>
+                              ) : null}
+                            </View>
+                          </View>
+                          {!isOff ? (
+                            <View style={styles.myWeekShiftsWrap}>
+                              {dayShifts.map((st, si) => (
+                                <View
+                                  key={st.id}
+                                  style={[styles.myWeekShiftBlock, si > 0 && styles.myWeekShiftBlockDivider]}
+                                >
+                                  <Text style={styles.myWeekShiftTime}>
+                                    {formatShiftTime(st.start_time)} – {formatShiftTime(st.end_time)}
+                                  </Text>
+                                  <View style={styles.myShiftRolePill}>
+                                    <Text style={styles.myShiftRoleText}>
+                                      {resolveShiftRoleLabel(
+                                        st.user_id,
+                                        team.owner_id,
+                                        members,
+                                        st.role,
+                                        rbacRoleByUserId[st.user_id]
+                                      )}
+                                    </Text>
+                                  </View>
+                                </View>
+                              ))}
+                            </View>
+                          ) : isBizToday ? (
+                            <Text style={styles.myWeekOffTodayCaption}>
+                              Bugün size atanmış vardiya yok (OFF).
+                            </Text>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </>
+                )}
+              </Card>
+            ) : null}
+          </View>
+
+          <View style={styles.teamScheduleSectionHeader}>
+            <Text style={styles.vardiyaSectionLabel}>Ekip programı</Text>
+            <Pressable
+              onPress={() => setTeamScheduleFullscreenOpen(true)}
+              style={({ pressed }) => [styles.scheduleExpandBtn, pressed && styles.scheduleExpandBtnPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Programı genişlet, yatay tam ekran"
+            >
+              <Text style={styles.scheduleExpandLabel}>Tam ekrana geç</Text>
+              <Ionicons name="expand-outline" size={18} color={colors.accent} />
+            </Pressable>
+          </View>
           <View style={styles.weekNavRow}>
             <Pressable
               onPress={() => {
@@ -588,64 +762,136 @@ export function TeamDetailScreen({ route }: Props) {
             style={styles.thisWeekChip}
           >
             <Ionicons name="today-outline" size={16} color={colors.accent} />
-            <Text style={styles.thisWeekChipText}>Bu hafta</Text>
+            <Text style={styles.thisWeekChipText}>Bu haftaya dön</Text>
           </Pressable>
-          <Text style={styles.planSectionTitle}>Haftalık vardiyalar</Text>
+
           {shiftsLoading ? (
-            <View style={styles.dayCard}><Text style={styles.placeholder}>Yükleniyor…</Text></View>
+            <Card style={styles.teamDayPanel}>
+              <Text style={styles.placeholder}>Yükleniyor…</Text>
+            </Card>
           ) : (
-            selectedWeekDays.map((day) => {
-              const dayShifts = shiftsByDay[day.toDateString()] ?? [];
-              const dayName = WEEKDAY_LABELS[day.getDay()];
-              const dateNum = day.getDate();
-              const monthShort = day.toLocaleDateString('tr-TR', { month: 'short' });
-              const isToday = day.toDateString() === new Date().toDateString();
-              return (
-                <View key={day.toISOString()} style={[styles.dayCard, isToday && styles.dayCardToday]}>
-                  <View style={styles.dayCardHeader}>
-                    <View style={styles.dayCardTitleRow}>
-                      <Text style={[styles.dayCardTitle, isToday && styles.dayCardTitleToday]}>
-                        {dayName}, {dateNum} {monthShort}
+            <>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.dayChipRow}
+              >
+                {selectedWeekDays.map((day, i) => {
+                  const colKey = getCalendarColumnBusinessKey(day);
+                  const isSel = i === teamScheduleDayIndex;
+                  const isTodayChip = colKey === businessDateKey;
+                  const count = (shiftsByDay[colKey] ?? []).length;
+                  return (
+                    <Pressable
+                      key={colKey}
+                      onPress={() => setTeamScheduleDayIndex(i)}
+                      style={[
+                        styles.dayChip,
+                        isSel && styles.dayChipSelected,
+                        isTodayChip && !isSel && styles.dayChipTodayOutline,
+                      ]}
+                    >
+                      <Text
+                        style={[styles.dayChipWeekLabel, isSel && styles.dayChipWeekLabelSelected]}
+                      >
+                        {WEEKDAY_LABELS[day.getDay()]}
                       </Text>
-                      {isToday && (
+                      <Text style={[styles.dayChipDateNum, isSel && styles.dayChipDateNumSelected]}>
+                        {day.getDate()}
+                      </Text>
+                      {count > 0 ? <View style={styles.dayChipHasShiftDot} /> : null}
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {(() => {
+                const day = selectedWeekDays[teamScheduleDayIndex];
+                if (!day) return null;
+                const colKey = getCalendarColumnBusinessKey(day);
+                const panelShifts = shiftsByDay[colKey] ?? [];
+                const longLabel = day.toLocaleDateString('tr-TR', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                });
+                const isPanelToday = colKey === businessDateKey;
+                return (
+                  <Card style={[styles.teamDayPanel, isPanelToday ? styles.teamDayPanelToday : false]}>
+                    <View style={styles.teamDayPanelHeader}>
+                      <Text style={styles.teamDayPanelTitle}>{longLabel}</Text>
+                      {isPanelToday ? (
                         <View style={styles.todayBadge}>
                           <Text style={styles.todayBadgeText}>Bugün</Text>
                         </View>
-                      )}
+                      ) : null}
                     </View>
-                  </View>
-                  {dayShifts.length === 0 ? (
-                    <View style={styles.dayEmpty}>
-                      <Text style={styles.dayEmptyText}>Atanmış vardiya yok</Text>
-                    </View>
-                  ) : (
-                    dayShifts.map((s) => (
-                      <View key={s.id} style={styles.shiftRow}>
-                        <View style={styles.shiftRowDot} />
-                        <View style={styles.shiftRowContent}>
-                          <View style={styles.shiftRowNameRow}>
-                            <Text style={styles.shiftRowName}>
-                              {s.user ? `${s.user.name ?? ''} ${s.user.surname ?? ''}`.trim() || 'Üye' : 'Üye'}
-                            </Text>
-                            {s.role ? (
+                    {panelShifts.length === 0 ? (
+                      <Text style={styles.teamDayEmpty}>OFF — bu güne atanmış vardiya kaydı yok.</Text>
+                    ) : (
+                      panelShifts.map((s) => (
+                        <View key={s.id} style={styles.shiftRow}>
+                          <View style={styles.shiftRowDot} />
+                          <View style={styles.shiftRowContent}>
+                            <View style={styles.shiftRowNameRow}>
+                              <Text style={styles.shiftRowName}>
+                                {s.user
+                                  ? `${s.user.name ?? ''} ${s.user.surname ?? ''}`.trim() || 'Üye'
+                                  : 'Üye'}
+                              </Text>
                               <View style={styles.shiftRoleBadge}>
-                                <Text style={styles.shiftRoleBadgeText}>{s.role}</Text>
+                                <Text style={styles.shiftRoleBadgeText}>
+                                  {resolveShiftRoleLabel(
+                                    s.user_id,
+                                    team.owner_id,
+                                    members,
+                                    s.role,
+                                    rbacRoleByUserId[s.user_id]
+                                  )}
+                                </Text>
                               </View>
-                            ) : null}
+                            </View>
+                            <Text style={styles.shiftRowTime}>
+                              {formatShiftTime(s.start_time)} – {formatShiftTime(s.end_time)}
+                            </Text>
                           </View>
-                          <Text style={styles.shiftRowTime}>
-                            {formatShiftTime(s.start_time)} – {formatShiftTime(s.end_time)}
-                          </Text>
                         </View>
-                      </View>
-                    ))
-                  )}
-                </View>
-              );
-            })
+                      ))
+                    )}
+                  </Card>
+                );
+              })()}
+            </>
           )}
         </>
       )}
+
+      <TeamScheduleTableModal
+        visible={teamScheduleFullscreenOpen}
+        onClose={() => setTeamScheduleFullscreenOpen(false)}
+        teamId={team.id}
+        teamName={team.name}
+        teamOwnerId={team.owner_id}
+        organizationId={team.organization_id}
+        weekRangeLabel={weekRangeLabel(selectedWeekStart)}
+        weekDays={selectedWeekDays}
+        shifts={shifts as (Shift & { user?: { name?: string; surname?: string } })[]}
+        members={members}
+        businessDateKey={businessDateKey}
+        shiftsLoading={shiftsLoading}
+        canEditSchedule={isManager}
+        onPrevWeek={() => {
+          const d = new Date(selectedWeekStart);
+          d.setDate(d.getDate() - 7);
+          setSelectedWeekStart(d);
+        }}
+        onNextWeek={() => {
+          const d = new Date(selectedWeekStart);
+          d.setDate(d.getDate() + 7);
+          setSelectedWeekStart(d);
+        }}
+        onThisWeek={() => setSelectedWeekStart(getCurrentWeekMonday())}
+      />
 
       <Modal visible={showInviteModal} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
@@ -960,44 +1206,289 @@ const styles = StyleSheet.create({
     fontFamily: fonts.medium,
     color: colors.accent,
   },
-  planSectionTitle: {
-    fontSize: 15,
-    fontFamily: fonts.semibold,
-    color: colors.textSecondary,
-    marginBottom: spacing.md,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  dayCard: {
+  vardiyaManageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    marginBottom: spacing.lg,
     backgroundColor: colors.surface,
     borderRadius: borderRadius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+    gap: spacing.md,
   },
-  dayCardToday: {
-    borderColor: colors.accent + '60',
-    backgroundColor: colors.accent + '08',
+  vardiyaManageRowPressed: { opacity: 0.9 },
+  vardiyaManageIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.accent + '14',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  dayCardHeader: {
+  vardiyaManageText: { flex: 1, minWidth: 0 },
+  vardiyaManageTitle: {
+    fontSize: 15,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+  },
+  vardiyaManageSubtitle: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  vardiyaSectionLabel: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 0,
+  },
+  teamScheduleSectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: spacing.sm,
   },
-  dayCardTitleRow: {
+  scheduleExpandBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    flex: 1,
+    gap: 6,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.accent + '40',
+    backgroundColor: colors.accent + '10',
   },
-  dayCardTitle: {
-    fontSize: 15,
+  scheduleExpandBtnPressed: { opacity: 0.85 },
+  /** vardiyaSectionLabel ile aynı tipografi; renk eski ikon rengi (accent) */
+  scheduleExpandLabel: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 0,
+  },
+  myShiftsCollapsibleWrap: {
+    marginBottom: spacing.lg,
+  },
+  myShiftsSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  myShiftsSectionHeaderPressed: { opacity: 0.85 },
+  myShiftsSectionHeaderText: { flex: 1, minWidth: 0 },
+  myShiftsSectionTitle: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  myShiftsSectionSummary: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 4,
+  },
+  vardiyaMyCardOpen: {
+    marginTop: spacing.xs,
+    padding: spacing.md,
+  },
+  myWeekListHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  myWeekDayRow: {
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    marginBottom: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.border,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  myWeekDayRowToday: {
+    borderLeftColor: colors.accent,
+    backgroundColor: colors.accent + '10',
+    borderColor: colors.accent + '40',
+  },
+  myWeekDayRowOff: {
+    borderLeftColor: 'rgba(148, 163, 184, 0.85)',
+    backgroundColor: 'rgba(148, 163, 184, 0.08)',
+  },
+  myWeekDayRowTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  myWeekDayTitle: {
+    flex: 1,
+    fontSize: 14,
     fontFamily: fonts.semibold,
     color: colors.textPrimary,
+    minWidth: 0,
   },
-  dayCardTitleToday: { color: colors.accent },
+  myWeekDayTitleToday: {
+    color: colors.accent,
+  },
+  myWeekDayBadges: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: spacing.xs,
+    maxWidth: '48%',
+  },
+  myWeekTodayBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: colors.accent,
+  },
+  myWeekTodayBadgeText: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.bgDark,
+  },
+  myWeekOffBadge: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  myWeekOffBadgeText: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+  },
+  myWeekShiftsWrap: {
+    marginTop: spacing.sm,
+    gap: spacing.sm,
+  },
+  myWeekShiftBlock: {
+    paddingTop: spacing.xs,
+  },
+  myWeekShiftBlockDivider: {
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    marginTop: spacing.xs,
+    paddingTop: spacing.sm,
+  },
+  myWeekShiftTime: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+  },
+  myWeekOffTodayCaption: {
+    fontSize: 12,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  myShiftRolePill: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    paddingVertical: 2,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.sm,
+    backgroundColor: colors.accent + '18',
+    borderWidth: 1,
+    borderColor: colors.accent + '35',
+  },
+  myShiftRoleText: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: colors.accent,
+  },
+  dayChipRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  dayChip: {
+    minWidth: 52,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  dayChipSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.accent + '18',
+  },
+  dayChipTodayOutline: {
+    borderColor: colors.accent + '55',
+  },
+  dayChipWeekLabel: {
+    fontSize: 11,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
+  dayChipWeekLabelSelected: {
+    color: colors.accent,
+    fontFamily: fonts.semibold,
+  },
+  dayChipDateNum: {
+    fontSize: 17,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  dayChipDateNumSelected: { color: colors.accent },
+  dayChipHasShiftDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: colors.accent,
+    marginTop: 6,
+  },
+  teamDayPanel: {
+    marginBottom: spacing.md,
+    padding: spacing.md,
+  },
+  teamDayPanelToday: {
+    borderColor: colors.accent + '50',
+    backgroundColor: colors.accent + '06',
+  },
+  teamDayPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  teamDayPanelTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    textTransform: 'capitalize',
+  },
+  teamDayEmpty: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
   todayBadge: {
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
@@ -1008,14 +1499,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: fonts.semibold,
     color: colors.bgDark,
-  },
-  dayEmpty: {
-    paddingVertical: spacing.md,
-    paddingLeft: spacing.md,
-  },
-  dayEmptyText: {
-    fontSize: 13,
-    color: colors.textSecondary,
   },
   shiftRow: {
     flexDirection: 'row',
