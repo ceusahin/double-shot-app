@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { Card } from '../components';
 import { colors, spacing, typography } from '../utils/theme';
 import { EQUIPMENT_CATEGORIES, EQUIPMENT_FAULTS, MAINTENANCE_TASKS, type FaultItem } from '../data/equipment';
@@ -18,7 +19,12 @@ export function EquipmentGuideScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+      nestedScrollEnabled
+    >
       <View style={styles.header}>
         <Text style={styles.title}>Makine & <Text style={styles.titleAccent}>Ekipman</Text></Text>
         <Text style={styles.subtitle}>Sorun tespit, arıza onarım ve periyodik bakımlar.</Text>
@@ -51,24 +57,36 @@ export function EquipmentGuideScreen() {
 
       {activeTab === 'troubleshoot' && (
         <>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pills} contentContainerStyle={styles.pillsContent}>
-            {EQUIPMENT_CATEGORIES.map((cat) => (
-              <Pressable
-                key={cat.id}
-                style={[styles.pill, selectedCategory === cat.id && styles.pillActive]}
-                onPress={() => setSelectedCategory(cat.id)}
-              >
-                <Text style={[styles.pillText, selectedCategory === cat.id && styles.pillTextActive]}>{cat.label}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
+          <GHScrollView
+            horizontal
+            nestedScrollEnabled
+            directionalLockEnabled
+            scrollEnabled
+            showsHorizontalScrollIndicator={false}
+            style={styles.pills}
+            contentContainerStyle={styles.pillsContent}
+            keyboardShouldPersistTaps="handled"
+          >
+            {EQUIPMENT_CATEGORIES.map((item) => {
+              const isSelected = selectedCategory === item.id;
+              return (
+                <Pressable
+                  key={item.id}
+                  style={[styles.pill, isSelected && styles.pillActive]}
+                  onPress={() => setSelectedCategory(item.id)}
+                >
+                  <Text style={[styles.pillText, isSelected && styles.pillTextActive]}>{item.label}</Text>
+                </Pressable>
+              );
+            })}
+          </GHScrollView>
 
           <Text style={styles.sectionTitle}>Sık Karşılaşılan Sorunlar ({faults.length} kayıt)</Text>
 
           {faults.map((fault) => {
             const isExpanded = expandedFaultId === fault.id;
             return (
-              <Card key={fault.id} style={[styles.faultCard, isExpanded && styles.faultCardExpanded]}>
+              <Card key={fault.id} style={isExpanded ? styles.faultCardExpanded : styles.faultCard}>
                 <Pressable style={styles.faultHeader} onPress={() => setExpandedFaultId(isExpanded ? null : fault.id)}>
                   <View style={styles.faultHeaderLeft}>
                     <Text style={[styles.faultTitle, isExpanded && styles.faultTitleAccent]}>{fault.title}</Text>
@@ -109,7 +127,7 @@ export function EquipmentGuideScreen() {
           {MAINTENANCE_TASKS.map((task) => (
             <Card
               key={task.id}
-              style={[styles.taskCard, task.status === 'done' && styles.taskCardDone]}
+              style={task.status === 'done' ? styles.taskCardDone : styles.taskCard}
             >
               <View style={styles.taskLeft}>
                 <Text style={[styles.taskTitle, task.status === 'done' && styles.taskTitleDone]}>{task.title}</Text>
@@ -158,14 +176,14 @@ const styles = StyleSheet.create({
   tabText: { fontSize: 13, color: colors.textSecondary },
   tabTextActive: { color: colors.black, fontWeight: '600' },
   pills: { marginBottom: spacing.md },
-  pillsContent: { gap: spacing.sm, paddingBottom: spacing.sm },
+  pillsContent: { flexDirection: 'row', gap: spacing.sm, paddingBottom: spacing.sm, paddingRight: spacing.sm },
   pill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1, borderColor: colors.border },
   pillActive: { backgroundColor: colors.surfaceLight, borderColor: colors.accent },
   pillText: { fontSize: 13, color: colors.textSecondary },
   pillTextActive: { color: colors.accent, fontWeight: '700' },
   sectionTitle: { fontSize: 15, marginBottom: spacing.md, color: colors.textPrimary },
   faultCard: { marginBottom: spacing.sm },
-  faultCardExpanded: { borderColor: colors.accent, borderWidth: 1 },
+  faultCardExpanded: { marginBottom: spacing.sm, borderColor: colors.accent, borderWidth: 1 },
   faultHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   faultHeaderLeft: { flex: 1, paddingRight: spacing.sm },
   faultTitle: { fontSize: 14, lineHeight: 20, marginBottom: 4, color: colors.textPrimary },
@@ -182,7 +200,7 @@ const styles = StyleSheet.create({
   serviceBtnText: { fontSize: 13, fontWeight: '700', color: colors.error },
   maintenanceDesc: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.md },
   taskCard: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.border },
-  taskCardDone: { borderLeftColor: colors.accent, opacity: 0.7 },
+  taskCardDone: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.sm, borderLeftWidth: 3, borderLeftColor: colors.accent, opacity: 0.7 },
   taskLeft: { flex: 1 },
   taskTitle: { fontSize: 14, marginBottom: 4, color: colors.textPrimary },
   taskTitleDone: { textDecorationLine: 'line-through' },

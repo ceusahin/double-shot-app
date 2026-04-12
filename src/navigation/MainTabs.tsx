@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { HomeScreen } from '../screens/HomeScreen';
 import { TeamsStack } from './TeamsStack';
-import { TrainingScreen } from '../screens/TrainingScreen';
+import { OperationsScreen } from '../screens/OperationsScreen';
 import { RecipesStack } from './RecipesStack';
 import { AppHeaderTitle } from '../components/AppHeaderTitle';
 import { HeaderRightWithNotif } from '../components/HeaderRightWithNotif';
@@ -26,14 +26,14 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const TAB_LABELS: Record<string, string> = {
   Home: 'Ana Sayfa',
   Recipes: 'Tarifler',
-  Training: 'Eğitim',
+  Training: 'Operasyon',
   Team: 'Ekip',
 };
 
 const TAB_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Home: 'home-outline',
   Recipes: 'cafe-outline',
-  Training: 'book-outline',
+  Training: 'calendar-outline',
   Team: 'people-outline',
 };
 
@@ -49,7 +49,7 @@ function TeamTabWrapper() {
 
 const WithTransitionHome = withTabTransition(HomeScreen);
 const WithTransitionRecipes = withTabTransition(RecipesStack);
-const WithTransitionTraining = withTabTransition(TrainingScreen);
+const WithTransitionTraining = withTabTransition(OperationsScreen);
 const WithTransitionTeam = withTabTransition(TeamTabWrapper);
 
 function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
@@ -66,12 +66,25 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
           const color = isFocused ? colors.accent : colors.textSecondary;
 
           const onPress = () => {
+            const currentRoute = state.routes[state.index];
             const event = navigation.emit({
               type: 'tabPress',
               target: route.key,
               canPreventDefault: true,
             });
-            if (!isFocused && !event.defaultPrevented) {
+
+            if (event.defaultPrevented) return;
+
+            // Reset recipes stack before leaving, so returning opens list directly.
+            if (currentRoute.name === 'Recipes' && route.name !== 'Recipes') {
+              navigation.navigate('Recipes', { screen: 'RecipesList' });
+            }
+
+            if (!isFocused) {
+              if (route.name === 'Recipes') {
+                navigation.navigate('Recipes', { screen: 'RecipesList' });
+                return;
+              }
               navigation.navigate(route.name, route.params);
             }
           };
@@ -87,7 +100,7 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               <View style={styles.tabItem}>
                 <Ionicons name={iconName} size={24} color={color} />
                 <Text
-                  style={[styles.tabLabel, { color, textAlign: 'center' }]}
+                  style={[styles.tabLabel, { color, textAlign: 'left' }]}
                   numberOfLines={2}
                 >
                   {label}
@@ -105,21 +118,38 @@ export function MainTabs() {
   return (
     <Tab.Navigator
       tabBar={(props) => <CustomTabBar {...props} />}
-      screenOptions={() => ({
+      screenOptions={({ navigation }) => ({
         lazy: true,
         headerShown: true,
+        headerTitleAlign: 'left',
         headerStyle: { backgroundColor: colors.bgDark },
         headerTintColor: colors.textPrimary,
         headerTitleStyle: { ...typography.subtitle, color: colors.textPrimary },
         headerShadowVisible: false,
-        headerTitle: () => <AppHeaderTitle />,
+        headerTitle: () => null,
+        headerLeft: () => (
+          <Pressable
+            onPress={() => navigation.navigate('Home')}
+            style={styles.headerBrandWrap}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Ana sayfaya git"
+          >
+            <AppHeaderTitle />
+          </Pressable>
+        ),
+        headerTitleContainerStyle: { left: 0, right: 0 },
         headerRight: () => <HeaderRightWithNotif />,
       })}
     >
       <Tab.Screen name="Home" component={WithTransitionHome} />
       <Tab.Screen name="Recipes" component={WithTransitionRecipes} />
       <Tab.Screen name="Training" component={WithTransitionTraining} />
-      <Tab.Screen name="Team" component={WithTransitionTeam} />
+      <Tab.Screen
+        name="Team"
+        component={WithTransitionTeam}
+        options={{ headerShown: true }}
+      />
     </Tab.Navigator>
   );
 }
@@ -152,10 +182,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 4,
     maxWidth: '100%',
+    width: '100%',
+    paddingLeft: spacing.sm,
   },
   tabLabel: {
     ...typography.small,
     fontFamily: fonts.medium,
     paddingHorizontal: 4,
+  },
+  headerBrandWrap: {
+    marginLeft: spacing.md,
+    marginTop: spacing.md,
   },
 });

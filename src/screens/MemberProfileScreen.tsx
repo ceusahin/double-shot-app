@@ -2,9 +2,9 @@ import React, { useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
-import { Avatar, Card, ProgressBar } from '../components';
+import { Avatar, Card } from '../components';
 import { getTrainingProgress, getGlobalTrainings } from '../services/training';
-import { colors, spacing, typography, XP_PER_LEVEL, LEVEL_ORDER } from '../utils/theme';
+import { colors, spacing, typography } from '../utils/theme';
 import type { UserProfile } from '../types';
 
 type Props = {
@@ -14,12 +14,6 @@ type Props = {
 export function MemberProfileScreen({ route }: Props) {
   const { user } = route.params;
   const displayName = [user.name, user.surname].filter(Boolean).join(' ') || user.email;
-  const xpInLevel = user.experience_points % XP_PER_LEVEL;
-  const progress = xpInLevel / XP_PER_LEVEL;
-  const xpToNextLevel = XP_PER_LEVEL - xpInLevel;
-  const levelOrderKeys = Object.keys(LEVEL_ORDER);
-  const currentLevelIndex = levelOrderKeys.indexOf(user.level);
-  const isMaxLevel = currentLevelIndex >= levelOrderKeys.length - 1;
 
   const { data: progressList = [] } = useQuery({
     queryKey: ['training-progress', user.id],
@@ -54,32 +48,16 @@ export function MemberProfileScreen({ route }: Props) {
           style={styles.avatar}
         />
         <Text style={styles.name}>{displayName}</Text>
-        <Text style={styles.level}>{user.level}</Text>
-        <ProgressBar
-          progress={progress}
-          label={`${user.experience_points} XP`}
-          showLabel
-          style={styles.progress}
-        />
-        <Text style={styles.xpToNext}>
-          {isMaxLevel
-            ? 'Maksimum seviye'
-            : `Sonraki seviyeye ${xpToNextLevel} puan kaldı`}
-        </Text>
       </View>
 
       <View style={styles.statsRow}>
         <Card style={styles.statCard}>
-          <Text style={styles.statValue}>{user.experience_points}</Text>
-          <Text style={styles.statLabel}>Puan</Text>
+          <Text style={styles.statValue}>{badges.length}</Text>
+          <Text style={styles.statLabel}>Rozet</Text>
         </Card>
         <Card style={styles.statCard}>
           <Text style={styles.statValue}>—</Text>
-          <Text style={styles.statLabel}>Eğitim</Text>
-        </Card>
-        <Card style={styles.statCard}>
-          <Text style={styles.statValue}>—</Text>
-          <Text style={styles.statLabel}>Pratik</Text>
+          <Text style={styles.statLabel}>Durum</Text>
         </Card>
       </View>
 
@@ -134,19 +112,6 @@ const styles = StyleSheet.create({
     ...typography.title,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
-  },
-  level: {
-    ...typography.body,
-    color: colors.accent,
-    marginBottom: spacing.md,
-  },
-  progress: {
-    width: '100%',
-    marginBottom: spacing.xs,
-  },
-  xpToNext: {
-    ...typography.small,
-    color: colors.textMuted,
   },
   statsRow: {
     flexDirection: 'row',

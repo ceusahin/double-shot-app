@@ -14,7 +14,19 @@ export function getNotifications(): typeof import('expo-notifications') {
       requestPermissionsAsync: async () => ({ status: 'undetermined' as const }),
       setNotificationChannelAsync: async () => {},
       getExpoPushTokenAsync: async () => ({ data: '' }),
-      AndroidImportance: { MAX: 3 },
+      scheduleNotificationAsync: async () => '',
+      cancelScheduledNotificationAsync: async () => {},
+      getAllScheduledNotificationsAsync: async () => [],
+      AndroidImportance: { MAX: 5, HIGH: 4, DEFAULT: 3, LOW: 2, MIN: 1, NONE: 0, UNSPECIFIED: -1 },
+      SchedulableTriggerInputTypes: {
+        DATE: 'date',
+        TIME_INTERVAL: 'timeInterval',
+        DAILY: 'daily',
+        WEEKLY: 'weekly',
+        MONTHLY: 'monthly',
+        YEARLY: 'yearly',
+        CALENDAR: 'calendar',
+      },
     } as unknown as typeof import('expo-notifications');
   }
   return require('expo-notifications');

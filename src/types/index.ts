@@ -24,6 +24,8 @@ export interface UserProfile {
   created_at: string;
 }
 
+export type TeamSubscriptionPlan = 'eco' | 'growth' | 'scale';
+
 export interface Team {
   id: string;
   name: string;
@@ -35,6 +37,11 @@ export interface Team {
   organization_id?: string | null;
   is_active?: boolean;
   created_at?: string;
+  /** Uygulama sahibi paneli / raporlama için */
+  subscription_plan?: TeamSubscriptionPlan | null;
+  subscription_billing_months?: 1 | 3 | 6 | null;
+  subscription_started_at?: string | null;
+  subscription_ends_at?: string | null;
 }
 
 export interface TeamMember {
@@ -44,6 +51,25 @@ export interface TeamMember {
   role: TeamMemberRole;
   joined_at: string;
   user?: UserProfile;
+}
+
+export type TeamJoinRequestStatus = 'pending' | 'approved' | 'rejected';
+
+export interface TeamJoinRequest {
+  id: string;
+  team_id: string;
+  requester_user_id: string;
+  requester_name?: string | null;
+  requester_surname?: string | null;
+  requester_email?: string | null;
+  requester_profile_photo?: string | null;
+  invite_token: string | null;
+  status: TeamJoinRequestStatus;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  teams?: Pick<Team, 'id' | 'name' | 'owner_id'>;
+  requester?: Pick<UserProfile, 'id' | 'name' | 'surname' | 'email' | 'profile_photo'>;
 }
 
 export interface ShiftTemplate {
@@ -74,6 +100,29 @@ export interface ShiftLog {
   check_out_time: string | null;
   location_lat: number | null;
   location_lng: number | null;
+}
+
+export type OperationTaskType = 'maintenance' | 'opening' | 'closing';
+
+export interface OperationTask {
+  id: string;
+  team_id: string | null;
+  type: OperationTaskType;
+  label: string;
+  details?: string | null;
+  day_of_week: number | null;
+  sort_order: number;
+  created_at?: string;
+}
+
+export interface OperationTaskLog {
+  id: string;
+  operation_task_id: string;
+  team_id: string;
+  user_id: string;
+  log_date: string;
+  completed_at: string;
+  user?: Pick<UserProfile, 'id' | 'name' | 'surname' | 'email'>;
 }
 
 export interface Training {
@@ -126,6 +175,29 @@ export interface NotificationItem {
   type: string;
   title: string;
   message: string;
+  created_at: string;
+}
+
+export interface TeamInventoryItem {
+  id: string;
+  team_id: string;
+  category_id: string;
+  name: string;
+  unit: string;
+  current_qty: number;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  category?: TeamInventoryCategory | null;
+}
+
+export interface TeamInventoryCategory {
+  id: string;
+  team_id: string;
+  name: string;
+  min_alert_qty: number;
+  sort_order: number;
   created_at: string;
 }
 

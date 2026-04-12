@@ -42,7 +42,6 @@ const TEAM_RECIPE_SUB_TABS: { key: TeamRecipeSubTabKey; label: string }[] = [
 ];
 
 const GLOBAL_CATEGORY_OPTIONS: { key: string; label: string }[] = [
-  { key: 'hepsi', label: 'Hepsi' },
   ...RECIPE_CATEGORIES.map((c) => ({ key: c.key, label: c.title })),
 ];
 
@@ -52,7 +51,7 @@ export function RecipesScreen() {
   const userId = useAuthStore((s) => s.user?.id);
 
   const [activeTab, setActiveTab] = useState<RecipeTabKey>('global');
-  const [globalSelectedKey, setGlobalSelectedKey] = useState('hepsi');
+  const [globalSelectedKey, setGlobalSelectedKey] = useState(RECIPE_CATEGORIES[0]?.key ?? '');
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [teamRecipeSubTab, setTeamRecipeSubTab] = useState<TeamRecipeSubTabKey>('list');
   const [addCategoryModal, setAddCategoryModal] = useState(false);
@@ -144,8 +143,8 @@ export function RecipesScreen() {
     }
   };
 
-  const globalCategoriesToShow =
-    globalSelectedKey === 'hepsi' ? RECIPE_CATEGORIES : RECIPE_CATEGORIES.filter((c) => c.key === globalSelectedKey);
+  const selectedGlobalCategory = RECIPE_CATEGORIES.find((c) => c.key === globalSelectedKey) ?? RECIPE_CATEGORIES[0];
+  const filteredGlobalItems = selectedGlobalCategory?.items ?? [];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -157,7 +156,7 @@ export function RecipesScreen() {
 
       {activeTab === 'global' && (
         <>
-          <Text style={styles.subtitle}>Dünyanın dört bir yanından standartlara uygun tarifler.</Text>
+          <Text style={styles.subtitle}>Dünyanın dört bir yanından güncel, alkolsüz ve standartlara uygun tarifler.</Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -177,15 +176,17 @@ export function RecipesScreen() {
               );
             })}
           </ScrollView>
-          {globalCategoriesToShow.map((category, index) => (
-            <View key={category.key} style={[styles.section, index > 0 && styles.sectionNotFirst]}>
-              {globalSelectedKey === 'hepsi' && (
-                <View style={styles.sectionTitleRow}>
-                  <View style={styles.sectionTitleAccent} />
-                  <Text style={styles.sectionTitle}>{category.title}</Text>
+          {selectedGlobalCategory ? (
+            <View key={selectedGlobalCategory.key} style={styles.section}>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionTitleAccent} />
+                <Text style={styles.sectionTitle}>{selectedGlobalCategory.title}</Text>
+              </View>
+              {filteredGlobalItems.length === 0 ? (
+                <View style={styles.emptyInline}>
+                  <Text style={styles.noRecipesText}>Aramanıza uygun tarif bulunamadı.</Text>
                 </View>
-              )}
-              {category.items.map((item) => (
+              ) : filteredGlobalItems.map((item) => (
                 <Pressable
                   key={item.id}
                   style={({ pressed }) => [styles.recipeCard, pressed && styles.recipeCardPressed]}
@@ -204,7 +205,7 @@ export function RecipesScreen() {
                 </Pressable>
               ))}
             </View>
-          ))}
+          ) : null}
         </>
       )}
 
@@ -473,7 +474,6 @@ const styles = StyleSheet.create({
   chipText: { ...typography.caption, color: colors.textSecondary },
   chipTextSelected: { color: colors.bgDark, fontFamily: fonts.semibold },
   section: { marginBottom: spacing.xl },
-  sectionNotFirst: { marginTop: spacing.lg },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
   sectionTitleAccent: { width: 4, height: 20, borderRadius: 2, backgroundColor: colors.accent, marginRight: spacing.sm },
   sectionTitle: {
@@ -587,6 +587,14 @@ const styles = StyleSheet.create({
   addRecipeBtnIconWrap: { alignItems: 'center', justifyContent: 'center' },
   addRecipeBtnText: { fontSize: 14, fontFamily: fonts.semibold, color: colors.bgDark },
   noRecipesText: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.sm },
+  emptyInline: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: borderRadius.md,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+  },
   teamRecipeCard: {
     flexDirection: 'row',
     alignItems: 'center',

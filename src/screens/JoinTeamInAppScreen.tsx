@@ -4,7 +4,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Button, Input } from '../components';
 import { useAuthStore } from '../store/authStore';
-import { joinTeamByInviteToken } from '../services/teams';
+import { requestJoinTeamByInviteToken } from '../services/teams';
 import { colors, spacing, typography } from '../utils/theme';
 
 /** Link veya URL'den token çıkar (doubleshot://invite/UUID veya https://.../invite/UUID) */
@@ -33,10 +33,10 @@ export function JoinTeamInAppScreen() {
     if (tokenFromParams && user) {
       setError('');
       setLoading(true);
-      joinTeamByInviteToken(tokenFromParams)
+      requestJoinTeamByInviteToken(tokenFromParams)
         .then((team) => {
-          queryClient.invalidateQueries({ queryKey: ['my-teams', user.id] });
-          Alert.alert('Takıma katıldınız', team.name, [
+          queryClient.invalidateQueries({ queryKey: ['join-requests-count'], exact: false });
+          Alert.alert('İstek gönderildi', `${team.name} ekibine katılma isteğiniz gönderildi.`, [
             { text: 'Tamam', onPress: () => navigation.goBack() },
           ]);
         })
@@ -54,9 +54,9 @@ export function JoinTeamInAppScreen() {
     setError('');
     setLoading(true);
     try {
-      const team = await joinTeamByInviteToken(token);
-      queryClient.invalidateQueries({ queryKey: ['my-teams', user.id] });
-      Alert.alert('Takıma katıldınız', team.name, [
+      const team = await requestJoinTeamByInviteToken(token);
+      queryClient.invalidateQueries({ queryKey: ['join-requests-count'], exact: false });
+      Alert.alert('İstek gönderildi', `${team.name} ekibine katılma isteğiniz gönderildi.`, [
         { text: 'Tamam', onPress: () => navigation.goBack() },
       ]);
     } catch (e) {

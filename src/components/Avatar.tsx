@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Image, Text, StyleSheet, ViewStyle } from 'react-native';
 import { colors, typography } from '../utils/theme';
 
@@ -19,18 +19,25 @@ function getInitials(name: string): string {
 }
 
 export function Avatar({ source, name = '', size = 48, style }: AvatarProps) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [source]);
+
   const containerStyle = [
     styles.container,
     { width: size, height: size, borderRadius: size / 2 },
     style,
   ];
 
-  if (source) {
+  if (source && !imageFailed) {
     return (
       <Image
-        source={{ uri: source }}
+        source={{ uri: source, cache: 'reload' }}
         style={containerStyle}
         resizeMode="cover"
+        onError={() => setImageFailed(true)}
       />
     );
   }

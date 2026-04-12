@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { lockPortraitUnlessFullscreen, subscribeAppStatePortraitLock } from './src/services/appOrientation';
 import { getNotifications, isExpoGo } from './src/services/notificationsWrapper';
 import { useFonts } from '@expo-google-fonts/outfit/useFonts';
 import {
@@ -9,27 +10,20 @@ import {
   Outfit_600SemiBold,
   Outfit_700Bold,
 } from '@expo-google-fonts/outfit';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { queryClient } from './src/lib/queryClient';
 import { RootNavigator } from './src/navigation/RootNavigator';
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 1,
-      staleTime: 60 * 1000,
-    },
-  },
-});
 
 // Expo Go'da expo-notifications hiç yüklenmez; böylece konsolda hata/uyarı çıkmaz
 if (!isExpoGo()) {
   const Notifications = getNotifications();
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
       shouldPlaySound: true,
       shouldSetBadge: true,
       shouldShowBanner: true,
+      shouldShowList: true,
     }),
   });
 }
@@ -42,6 +36,11 @@ export default function App() {
     Outfit_700Bold,
   });
 
+  useEffect(() => {
+    void lockPortraitUnlessFullscreen();
+    return subscribeAppStatePortraitLock();
+  }, []);
+
   if (!fontsLoaded) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0A0A0A' }}>
@@ -52,8 +51,10 @@ export default function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <StatusBar style="light" />
-      <RootNavigator />
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <RootNavigator />
+      </SafeAreaProvider>
     </QueryClientProvider>
   );
 }

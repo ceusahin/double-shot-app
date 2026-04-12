@@ -6,6 +6,7 @@ import {
   StyleSheet,
   TextInputProps,
   ViewStyle,
+  TextStyle,
 } from 'react-native';
 import { colors, borderRadius, spacing, typography, fonts } from '../utils/theme';
 
@@ -13,18 +14,20 @@ interface InputProps extends TextInputProps {
   label?: string;
   error?: string;
   containerStyle?: ViewStyle;
+  labelStyle?: TextStyle;
 }
 
 export function Input({
   label,
   error,
   containerStyle,
+  labelStyle,
   style,
   ...props
 }: InputProps) {
   return (
     <View style={[styles.container, containerStyle]}>
-      {label ? <Text style={styles.label}>{label}</Text> : null}
+      {label ? <Text style={[styles.label, labelStyle]}>{label}</Text> : null}
       <TextInput
         placeholderTextColor={colors.textMuted}
         style={[

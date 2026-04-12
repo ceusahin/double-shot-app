@@ -1,10 +1,21 @@
 import React, { useState, useLayoutEffect, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Modal, KeyboardAvoidingView, Platform } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+} from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
-import { Avatar, Card, Button, ProgressBar, Input } from '../components';
+import { Avatar, Card, Button, Input } from '../components';
 import { useAuthStore } from '../store/authStore';
 import {
   signOut,
@@ -16,9 +27,11 @@ import {
 } from '../services/auth';
 import { getMyRolesSummary } from '../services/rbac';
 import { getTrainingProgress, getGlobalTrainings } from '../services/training';
-import { colors, spacing, typography, fonts, XP_PER_LEVEL, LEVEL_ORDER } from '../utils/theme';
+import { colors, spacing, typography, fonts } from '../utils/theme';
 
 const MIN_PASSWORD_LENGTH = 6;
+/** base64 kullanma; düşük quality ile picker çıktısını küçült (OOM / çökme riskini azaltır). */
+const PROFILE_PHOTO_PICKER_QUALITY = 0.72;
 
 type SettingsView = 'main' | 'account-menu' | 'personal' | 'email' | 'password';
 
@@ -58,11 +71,16 @@ export function ProfileScreen() {
     });
   }, [navigation]);
 
-  const { data: roleSummaries = [] } = useQuery({
+  const {
+    data: roleData,
+    isPending: rolesPending,
+  } = useQuery({
     queryKey: ['my-roles', user?.id],
     queryFn: () => getMyRolesSummary(user!.id),
     enabled: !!user?.id,
   });
+  const roleSummaries = roleData ?? [];
+  const rolesStatLoading = !!user?.id && rolesPending && roleSummaries.length === 0;
 
   const { data: progressList = [] } = useQuery({
     queryKey: ['training-progress', user?.id],
@@ -185,12 +203,6 @@ export function ProfileScreen() {
   const showBack = settingsView !== 'main';
 
   const displayName = [user.name, user.surname].filter(Boolean).join(' ') || user.email;
-  const xpInLevel = user.experience_points % XP_PER_LEVEL;
-  const progress = xpInLevel / XP_PER_LEVEL;
-  const xpToNextLevel = XP_PER_LEVEL - xpInLevel;
-  const levelOrderKeys = Object.keys(LEVEL_ORDER);
-  const currentLevelIndex = levelOrderKeys.indexOf(user.level);
-  const isMaxLevel = currentLevelIndex >= levelOrderKeys.length - 1;
 
   const pickAndUploadPhoto = async () => {
     if (!user?.id) return;
@@ -200,17 +212,17 @@ export function ProfileScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
-      base64: true,
+      quality: PROFILE_PHOTO_PICKER_QUALITY,
+      exif: false,
     });
-    if (result.canceled) return;
+    if (result.canceled || !result.assets?.[0]) return;
     setPhotoLoading(true);
     try {
       const asset = result.assets[0];
-      const url = await uploadProfilePhoto(user.id, asset.uri, asset.base64 ?? undefined);
+      const url = await uploadProfilePhoto(user.id, asset.uri);
       const updated = await getProfile(user.id);
       if (updated) setUser(updated);
     } catch (e) {
@@ -250,32 +262,24 @@ export function ProfileScreen() {
             )}
           </Pressable>
           <Text style={styles.name}>{displayName}</Text>
-          <Text style={styles.level}>{user.level}</Text>
-          <ProgressBar
-            progress={progress}
-            label={`${user.experience_points} XP`}
-            showLabel
-            style={styles.progress}
-          />
-          <Text style={styles.xpToNext}>
-            {isMaxLevel
-              ? 'Maksimum seviye'
-              : `Sonraki seviyeye ${xpToNextLevel} puan kaldı`}
-          </Text>
         </View>
 
         <View style={styles.statsRow}>
           <Card style={styles.statCard}>
-            <Text style={styles.statValue}>{user.experience_points}</Text>
-            <Text style={styles.statLabel}>Puan</Text>
+            {rolesStatLoading ? (
+              <ActivityIndicator size="small" color={colors.accent} style={styles.statSpinner} />
+            ) : (
+              <Text style={styles.statValue}>{roleSummaries.length}</Text>
+            )}
+            <Text style={styles.statLabel}>Aktif Rol</Text>
+          </Card>
+          <Card style={styles.statCard}>
+            <Text style={styles.statValue}>{badges.length}</Text>
+            <Text style={styles.statLabel}>Rozet</Text>
           </Card>
           <Card style={styles.statCard}>
             <Text style={styles.statValue}>—</Text>
-            <Text style={styles.statLabel}>Eğitim</Text>
-          </Card>
-          <Card style={styles.statCard}>
-            <Text style={styles.statValue}>—</Text>
-            <Text style={styles.statLabel}>Pratik</Text>
+            <Text style={styles.statLabel}>Durum</Text>
           </Card>
         </View>
 
@@ -522,21 +526,6 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginTop: spacing.sm,
   },
-  level: {
-    ...typography.caption,
-    color: colors.accent,
-    marginTop: spacing.xs,
-    fontFamily: fonts.medium,
-  },
-  progress: {
-    marginTop: spacing.md,
-    width: 200,
-  },
-  xpToNext: {
-    ...typography.small,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
   statsRow: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -552,6 +541,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
     color: colors.textPrimary,
+  },
+  statSpinner: {
+    minHeight: 22,
+    marginVertical: 2,
   },
   statLabel: {
     ...typography.small,

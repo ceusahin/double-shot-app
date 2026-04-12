@@ -4,7 +4,6 @@ export interface MyRoleSummary {
   organizationId: string;
   organizationName: string;
   roleName: string;
-  roleLevelName: string;
 }
 
 export async function getMyRolesSummary(userId: string): Promise<MyRoleSummary[]> {
@@ -27,13 +26,11 @@ export async function getMyRolesSummary(userId: string): Promise<MyRoleSummary[]
     const member = members.find((m) => m.id === mr.member_id);
     const org = member?.organization as { name?: string } | undefined;
     const role = mr.role as { name?: string } | undefined;
-    const level = mr.role_level as { name?: string } | undefined;
-    if (member && org?.name && role?.name && level?.name) {
+    if (member && org?.name && role?.name) {
       result.push({
         organizationId: member.organization_id,
         organizationName: org.name,
         roleName: role.name,
-        roleLevelName: level.name,
       });
     }
   }

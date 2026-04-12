@@ -10,13 +10,21 @@ import { AreaRoleManagementScreen } from '../screens/AreaRoleManagementScreen';
 import { ShiftCheckInScreen } from '../screens/ShiftCheckInScreen';
 import { ShiftLocationManagementScreen } from '../screens/ShiftLocationManagementScreen';
 import { CreateTeamScreen } from '../screens/CreateTeamScreen';
+import { TeamPlanPickerScreen } from '../screens/TeamPlanPickerScreen';
+import { TeamSubscriptionSummaryScreen } from '../screens/TeamSubscriptionSummaryScreen';
 import { JoinTeamInAppScreen } from '../screens/JoinTeamInAppScreen';
 import { RoleCreationScreen } from '../screens/RoleCreationScreen';
 import { RoleLevelScreen } from '../screens/RoleLevelScreen';
 import { PermissionAssignmentScreen } from '../screens/PermissionAssignmentScreen';
 import { MemberRoleScreen } from '../screens/MemberRoleScreen';
 import { MemberProfileScreen } from '../screens/MemberProfileScreen';
+import { ShortageListScreen } from '../screens/ShortageListScreen';
+import { ShotNotificationScreen } from '../screens/ShotNotificationScreen';
+import { InventoryManagementScreen } from '../screens/InventoryManagementScreen';
+import { ShiftDetailScreen } from '../screens/ShiftDetailScreen';
+import { MemberPermissionsScreen } from '../screens/MemberPermissionsScreen';
 import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
+import type { BillingMonths, TeamPlanId } from '../constants/teamPlans';
 import type { Team, UserProfile } from '../types';
 import type { Role, RoleLevel, Member } from '../types/rbac';
 
@@ -29,13 +37,20 @@ export type TeamsStackParamList = {
   Timesheet: { team: Team & { role?: string } };
   ShiftLocationManagement: { team: Team & { role?: string } };
   AreaRoleManagement: { team: Team & { role?: string } };
+  ShortageList: { team: Team & { role?: string } };
+  ShotNotification: { team: Team & { role?: string } };
+  InventoryManagement: { team: Team & { role?: string } };
   ShiftCheckIn: { team: Team };
-  CreateTeam: undefined;
+  CreateTeamPlanPicker: undefined;
+  CreateTeamSummary: { planId: TeamPlanId; billingMonths: BillingMonths };
+  CreateTeam: { planId?: TeamPlanId; billingMonths?: BillingMonths } | undefined;
   JoinTeam: { token?: string };
   RoleCreation: { team: Team; organizationId: string };
   RoleLevel: { team: Team; role: Role };
   PermissionAssignment: { team: Team; role: Role; roleLevel: RoleLevel };
-  MemberRole: { team: Team; member: Member };
+  MemberRole: { team: Team; member: Member; organizationId?: string };
+  ShiftDetail: { team: Team & { role?: string } };
+  MemberPermissions: { team: Team & { role?: string } };
 };
 
 const Stack = createStackNavigator<TeamsStackParamList>();
@@ -54,6 +69,10 @@ const transitionSpec = {
 const sharedScreenOptions = {
   cardStyle: { backgroundColor: colors.background },
   headerStyle: { backgroundColor: colors.background },
+  headerTitleAlign: 'left' as const,
+  headerBackTitleVisible: false,
+  headerBackTitle: '',
+  headerTitleContainerStyle: { left: 0 },
   headerTitleStyle: { ...typography.subtitle, color: colors.accent },
   headerTintColor: colors.textPrimary,
   headerShadowVisible: false,
@@ -75,14 +94,25 @@ export function TeamsStack() {
         component={TeamsScreen}
         options={{ headerShown: false }}
       />
-      <Stack.Screen name="TeamDetail" component={TeamDetailScreen} options={{ title: 'Takım' }} />
+      <Stack.Screen
+        name="TeamDetail"
+        component={TeamDetailScreen}
+        options={{ headerShown: false }}
+      />
       <Stack.Screen name="TeamManagement" component={TeamManagementScreen} options={{ title: 'Ekip Yönetimi' }} />
       <Stack.Screen name="MemberProfile" component={MemberProfileScreen} options={{ title: 'Profil' }} />
       <Stack.Screen name="ShiftManagement" component={ShiftManagementScreen} options={{ title: 'Vardiya Yönetimi' }} />
       <Stack.Screen name="Timesheet" component={TimesheetScreen} options={{ title: 'Puantaj Yönetimi' }} />
       <Stack.Screen name="ShiftLocationManagement" component={ShiftLocationManagementScreen} options={{ title: 'Vardiya Konum Yönetimi' }} />
       <Stack.Screen name="AreaRoleManagement" component={AreaRoleManagementScreen} options={{ title: 'Alan/Rol Yönetimi' }} />
-      <Stack.Screen name="ShiftCheckIn" component={ShiftCheckInScreen} options={{ title: 'Vardiya girişi' }} />
+      <Stack.Screen name="ShortageList" component={ShortageListScreen} options={{ title: 'Eksik Listesi' }} />
+      <Stack.Screen name="ShotNotification" component={ShotNotificationScreen} options={{ title: 'Shot Bildirim' }} />
+      <Stack.Screen name="InventoryManagement" component={InventoryManagementScreen} options={{ title: 'Depo Stok Yönetimi' }} />
+      <Stack.Screen name="ShiftDetail" component={ShiftDetailScreen} options={{ title: 'Vardiya Detayı' }} />
+      <Stack.Screen name="MemberPermissions" component={MemberPermissionsScreen} options={{ title: 'Üye İzinleri' }} />
+      <Stack.Screen name="ShiftCheckIn" component={ShiftCheckInScreen} options={{ title: 'Vardiya ve mola girişi' }} />
+      <Stack.Screen name="CreateTeamPlanPicker" component={TeamPlanPickerScreen} options={{ title: 'Paket seçimi' }} />
+      <Stack.Screen name="CreateTeamSummary" component={TeamSubscriptionSummaryScreen} options={{ title: 'Özet' }} />
       <Stack.Screen name="CreateTeam" component={CreateTeamScreen} options={{ title: 'Takım oluştur' }} />
       <Stack.Screen name="JoinTeam" component={JoinTeamInAppScreen} options={{ title: 'Takıma katıl' }} />
       <Stack.Screen name="RoleCreation" component={RoleCreationScreen} options={{ title: 'Rol oluştur' }} />
