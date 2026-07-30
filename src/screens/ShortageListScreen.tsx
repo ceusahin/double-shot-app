@@ -1,5 +1,12 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Modal } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Modal,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { RouteProp, useRoute } from '@react-navigation/native';
@@ -16,11 +23,14 @@ import {
   deleteShortageArea,
 } from '../services/shortages';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type RouteProps = RouteProp<TeamsStackParamList, 'ShortageList'>;
 
 export function ShortageListScreen() {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const route = useRoute<RouteProps>();
   const { team } = route.params;
   const user = useAuthStore((s) => s.user);
@@ -75,7 +85,7 @@ export function ShortageListScreen() {
     },
     onError: (e) => {
       const msg = e instanceof Error ? e.message : 'Eksik eklenemedi';
-      Alert.alert('Hata', msg);
+      themedAlert('Hata', msg);
     },
   });
 
@@ -91,7 +101,7 @@ export function ShortageListScreen() {
     },
     onError: (e) => {
       const msg = e instanceof Error ? e.message : 'Eksik alınamadı';
-      Alert.alert('Hata', msg);
+      themedAlert('Hata', msg);
     },
   });
 
@@ -104,7 +114,7 @@ export function ShortageListScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.titleRow}>
@@ -159,7 +169,7 @@ export function ShortageListScreen() {
                     setArea(name);
                   } catch (e) {
                     const msg = e instanceof Error ? e.message : 'Alan eklenemedi';
-                    Alert.alert('Hata', msg);
+                    themedAlert('Hata', msg);
                   }
                 }}
                 style={styles.modalButton}
@@ -359,7 +369,7 @@ export function ShortageListScreen() {
                     setArea(name);
                   } catch (e) {
                     const msg = e instanceof Error ? e.message : 'Alan eklenemedi';
-                    Alert.alert('Hata', msg);
+                    themedAlert('Hata', msg);
                   }
                 }}
                 style={styles.modalButton}
@@ -417,7 +427,7 @@ export function ShortageListScreen() {
                           </Pressable>
                           <Pressable
                             onPress={async () => {
-                              Alert.alert(
+                              themedAlert(
                                 'Alanı sil',
                                 `"${a.name}" alanını silmek istediğinize emin misiniz? Bu alandaki eksikler etkilenmez ancak filtrelerinizde görünmez.`,
                                 [
@@ -437,7 +447,7 @@ export function ShortageListScreen() {
                                       } catch (e) {
                                         const msg =
                                           e instanceof Error ? e.message : 'Alan silinemedi';
-                                        Alert.alert('Hata', msg);
+                                        themedAlert('Hata', msg);
                                       }
                                     },
                                   },
@@ -509,7 +519,7 @@ export function ShortageListScreen() {
                   } catch (e) {
                     const msg =
                       e instanceof Error ? e.message : 'Alan güncellenemedi';
-                    Alert.alert('Hata', msg);
+                    themedAlert('Hata', msg);
                   }
                 }}
                 style={styles.modalButton}
@@ -524,7 +534,7 @@ export function ShortageListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   title: { ...typography.title, color: colors.textPrimary, marginBottom: 4 },
   titleRow: {
     flexDirection: 'row',

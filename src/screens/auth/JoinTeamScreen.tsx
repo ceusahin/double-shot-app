@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { Button, Input } from '../../components';
 import { useAuthStore } from '../../store/authStore';
 import { requestJoinTeamByInviteToken } from '../../services/teams';
 import { colors, spacing, typography } from '../../utils/theme';
+import { themedAlert } from '../../utils/themedAlert';
 
 function extractToken(input: string): string | null {
   const t = input.trim();
@@ -29,7 +30,7 @@ export function JoinTeamScreen() {
     setLoading(true);
     try {
       const team = await requestJoinTeamByInviteToken(token);
-      Alert.alert('İstek gönderildi', `${team.name} ekibine katılma isteğiniz gönderildi.`, [{ text: 'Tamam' }]);
+      themedAlert('İstek gönderildi', `${team.name} ekibine katılma isteğiniz gönderildi.`, [{ text: 'Tamam' }]);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Geçersiz veya süresi dolmuş davet linki.');
     } finally {

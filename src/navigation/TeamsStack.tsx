@@ -1,5 +1,5 @@
 import React from 'react';
-import { Easing } from 'react-native';
+import { ActivityIndicator, Easing, View } from 'react-native';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
 import { TeamsScreen } from '../screens/TeamsScreen';
 import { TeamDetailScreen } from '../screens/TeamDetailScreen';
@@ -23,6 +23,12 @@ import { ShotNotificationScreen } from '../screens/ShotNotificationScreen';
 import { InventoryManagementScreen } from '../screens/InventoryManagementScreen';
 import { ShiftDetailScreen } from '../screens/ShiftDetailScreen';
 import { MemberPermissionsScreen } from '../screens/MemberPermissionsScreen';
+import { ManagementHomeScreen } from '../screens/management/ManagementHomeScreen';
+import { PlatformAdminsScreen } from '../screens/management/PlatformAdminsScreen';
+import { AllMembersScreen } from '../screens/management/AllMembersScreen';
+import { SuperAdminUserDetailScreen } from '../screens/management/SuperAdminUserDetailScreen';
+import { useAuthStore } from '../store/authStore';
+import { isPlatformStaff } from '../services/platformAdmin';
 import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
 import type { BillingMonths, TeamPlanId } from '../constants/teamPlans';
 import type { Team, UserProfile } from '../types';
@@ -30,6 +36,10 @@ import type { Role, RoleLevel, Member } from '../types/rbac';
 
 export type TeamsStackParamList = {
   TeamsList: undefined;
+  ManagementHome: undefined;
+  PlatformAdmins: undefined;
+  AllMembers: undefined;
+  SuperAdminUserDetail: { user: UserProfile };
   TeamDetail: { team: Team & { role?: string } };
   TeamManagement: { team: Team & { role?: string } };
   MemberProfile: { user: UserProfile };
@@ -43,7 +53,12 @@ export type TeamsStackParamList = {
   ShiftCheckIn: { team: Team };
   CreateTeamPlanPicker: undefined;
   CreateTeamSummary: { planId: TeamPlanId; billingMonths: BillingMonths };
-  CreateTeam: { planId?: TeamPlanId; billingMonths?: BillingMonths } | undefined;
+  CreateTeam: {
+    /** Kota yalnızca süreye bağlı; paket kodu oluşturma anında atanmaz (varsayılan kayıt). */
+    billingMonths?: BillingMonths;
+    /** Paket seçilmeden 15 günlük deneme aboneliği ile takım oluştur */
+    withTrialSubscription?: boolean;
+  } | undefined;
   JoinTeam: { token?: string };
   RoleCreation: { team: Team; organizationId: string };
   RoleLevel: { team: Team; role: Role };
@@ -80,18 +95,55 @@ const sharedScreenOptions = {
 };
 
 export function TeamsStack() {
+  const user = useAuthStore((s) => s.user);
+  const authLoading = useAuthStore((s) => s.isLoading);
+  const staff = isPlatformStaff(user);
+  const initialRouteName = staff ? 'ManagementHome' : 'TeamsList';
+
+  if (authLoading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bgDark, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color={colors.accent} />
+      </View>
+    );
+  }
+
   return (
     <Stack.Navigator
+      initialRouteName={initialRouteName}
       screenOptions={({ route }) => ({
         ...sharedScreenOptions,
         cardStyleInterpolator:
-          route.name === 'TeamsList' ? undefined : CardStyleInterpolators.forVerticalIOS,
-        transitionSpec: route.name === 'TeamsList' ? undefined : transitionSpec,
+          route.name === 'TeamsList' || route.name === 'ManagementHome'
+            ? undefined
+            : CardStyleInterpolators.forVerticalIOS,
+        transitionSpec:
+          route.name === 'TeamsList' || route.name === 'ManagementHome' ? undefined : transitionSpec,
       })}
     >
       <Stack.Screen
+        name="ManagementHome"
+        component={ManagementHomeScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
         name="TeamsList"
         component={TeamsScreen}
+        options={{ headerShown: false }}
+      />
+      <Stack.Screen
+        name="PlatformAdmins"
+        component={PlatformAdminsScreen}
+        options={{ title: 'Yönetici hesapları' }}
+      />
+      <Stack.Screen
+        name="AllMembers"
+        component={AllMembersScreen}
+        options={{ title: 'Tüm üyeler' }}
+      />
+      <Stack.Screen
+        name="SuperAdminUserDetail"
+        component={SuperAdminUserDetailScreen}
         options={{ headerShown: false }}
       />
       <Stack.Screen
@@ -99,7 +151,7 @@ export function TeamsStack() {
         component={TeamDetailScreen}
         options={{ headerShown: false }}
       />
-      <Stack.Screen name="TeamManagement" component={TeamManagementScreen} options={{ title: 'Ekip Yönetimi' }} />
+      <Stack.Screen name="TeamManagement" component={TeamManagementScreen} options={{ headerShown: false }} />
       <Stack.Screen name="MemberProfile" component={MemberProfileScreen} options={{ title: 'Profil' }} />
       <Stack.Screen name="ShiftManagement" component={ShiftManagementScreen} options={{ title: 'Vardiya Yönetimi' }} />
       <Stack.Screen name="Timesheet" component={TimesheetScreen} options={{ title: 'Puantaj Yönetimi' }} />

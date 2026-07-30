@@ -6,12 +6,14 @@ import { Avatar, Card } from '../components';
 import { getTrainingProgress, getGlobalTrainings } from '../services/training';
 import { colors, spacing, typography } from '../utils/theme';
 import type { UserProfile } from '../types';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Props = {
   route: { params: { user: UserProfile } };
 };
 
 export function MemberProfileScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const { user } = route.params;
   const displayName = [user.name, user.surname].filter(Boolean).join(' ') || user.email;
 
@@ -37,7 +39,7 @@ export function MemberProfileScreen({ route }: Props) {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
@@ -79,7 +81,7 @@ export function MemberProfileScreen({ route }: Props) {
               </View>
               <Text style={styles.badgeTitle} numberOfLines={2}>{b.title}</Text>
               {b.score != null && (
-                <Text style={styles.badgeScore}>{b.score} puan</Text>
+                <Text style={styles.badgeScore}>Sınav: {b.score}/5 doğru</Text>
               )}
             </Card>
           ))}
@@ -96,7 +98,7 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 0,
   },
   header: {
     alignItems: 'center',

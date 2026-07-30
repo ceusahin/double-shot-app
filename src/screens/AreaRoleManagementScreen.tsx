@@ -7,10 +7,12 @@ import { ensureOrganizationForTeam, listRoles } from '../services/rbac';
 import { useAuthStore } from '../store/authStore';
 import { colors, spacing, typography } from '../utils/theme';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'AreaRoleManagement'> };
 
 export function AreaRoleManagementScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const { team } = route.params;
   const user = useAuthStore((s) => s.user);
   const isOwner = team.owner_id === user?.id;
@@ -33,7 +35,11 @@ export function AreaRoleManagementScreen({ route }: Props) {
   });
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.sectionTitle}>Alanlar</Text>
       <Text style={styles.hint}>
         İşyerinizdeki alanlar (mutfak, bar, garsonluk vb.) ve bu alanlara ait roller burada yönetilir.
@@ -69,7 +75,7 @@ export function AreaRoleManagementScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.xs },
   hint: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
   card: { marginBottom: spacing.lg },

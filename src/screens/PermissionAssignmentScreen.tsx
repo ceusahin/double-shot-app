@@ -10,10 +10,12 @@ import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme
 import type { Team } from '../types';
 import type { Role, RoleLevel, Permission } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'PermissionAssignment'> };
 
 export function PermissionAssignmentScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const { team, role, roleLevel } = route.params;
   const queryClient = useQueryClient();
   const [saving, setSaving] = useState(false);
@@ -65,7 +67,11 @@ export function PermissionAssignmentScreen({ route }: Props) {
   const noneSelected = selectedIds.size === 0;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
       <Text style={styles.title}>{role.name} · {roleLevel.name}</Text>
       <Text style={styles.subtitle}>Bu seviyeye atanacak yetkileri seçin</Text>
 
@@ -128,7 +134,7 @@ export function PermissionAssignmentScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.xs },
   subtitle: { ...typography.caption, color: colors.textMuted, marginBottom: spacing.md },
   actions: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },

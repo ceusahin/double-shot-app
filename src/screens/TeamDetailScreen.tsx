@@ -1,5 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Modal, Share, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Modal,
+  Share,
+} from 'react-native';
 import * as Clipboard from 'expo-clipboard';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
@@ -10,14 +18,23 @@ import { useNotificationModal } from '../context/NotificationModalContext';
 import { useAuthStore } from '../store/authStore';
 import { listMembersWithRoles } from '../services/rbac';
 import { supabase } from '../services/supabase';
-import { getTeamMembers, createTeamInviteLink, removeMember, getPendingJoinRequestsCountForTeam } from '../services/teams';
+import {
+  getTeamMembers,
+  createTeamInviteLink,
+  removeMember,
+  getPendingJoinRequestsCountForTeam,
+  platformStaffCloseTeam,
+  closeTeam,
+} from '../services/teams';
+import { isPlatformStaff } from '../services/platformAdmin';
 import { listTeamMemberFeaturePermissions } from '../services/memberPermissions';
 import { TEAM_FEATURE_CARDS } from '../constants/memberFeaturePermissions';
 import { navigationRef } from '../navigation/navigationRef';
 import { getTeamShifts } from '../services/shifts';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
-import { subscriptionDaysRemaining } from '../utils/subscriptionPeriod';
+import { themedAlert } from '../utils/themedAlert';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 import {
   getCalendarColumnBusinessKey,
   getTimestampBusinessDateKey,
@@ -25,7 +42,7 @@ import {
   useBusinessDayClock,
 } from '../utils/businessDay';
 import { buildOrgRoleByUserId, resolveShiftRoleLabel } from '../utils/shiftRoleLabel';
-import type { Team, Shift } from '../types';
+import type { Team, Shift, TeamSubscriptionPlan } from '../types';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 const WEEKDAY_LABELS = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
@@ -108,48 +125,164 @@ function getCurrentWeekMonday(): Date {
   return monday;
 }
 
-function TeamSubscriptionBanner({ teamName, endsAtIso }: { teamName: string; endsAtIso: string }) {
-  const daysLeft = subscriptionDaysRemaining(endsAtIso);
-  const endLabel = new Date(endsAtIso).toLocaleDateString('tr-TR', {
+function pad2(n: number): string {
+  return Math.max(0, n).toString().padStart(2, '0');
+}
+
+function formatTrDateTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('tr-TR', {
+    weekday: 'long',
     day: 'numeric',
     month: 'long',
     year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
   });
-  const expired = daysLeft !== null && daysLeft < 0;
-  const urgent = daysLeft !== null && daysLeft >= 0 && daysLeft <= 10;
+}
+
+function planLabel(
+  plan: TeamSubscriptionPlan | null | undefined,
+  billingMonths: 1 | 3 | 6 | null | undefined,
+  manualHours?: number | null
+): string {
+  let base: string;
+  if (plan === 'trial') {
+    base = '15 günlük deneme';
+  } else {
+    const tier =
+      plan === 'growth' ? 'Growth' : plan === 'scale' ? 'Scale' : plan === 'eco' ? 'Eco' : 'Paket';
+    if (billingMonths === 3) base = `${tier} · 3 ay`;
+    else if (billingMonths === 6) base = `${tier} · 6 ay`;
+    else if (billingMonths === 1) base = `${tier} · 1 ay`;
+    else base = tier;
+  }
+  const mh = manualHours ?? 0;
+  if (mh === 0) return base;
+  return `${base} · Özel`;
+}
+
+/** Kalan süreyi gün + sa:dk:sn olarak gösterür (gün yoksa sadece sa:dk:sn). */
+function formatCountdown(diffMs: number): string {
+  if (diffMs <= 0) return '0:00:00';
+  const totalSec = Math.floor(diffMs / 1000);
+  const days = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const clock = `${pad2(h)}:${pad2(m)}:${pad2(s)}`;
+  if (days > 0) return `${days} g ${clock}`;
+  return clock;
+}
+
+/** Tek satır — "Vardiya detayı" kartı ile aynı boyut; detaylar (i) ile açılır. */
+function TeamSubscriptionCountdown({ team }: { team: Team }) {
+  const endsAtIso = team.subscription_ends_at;
+  if (!endsAtIso) return null;
+
+  const [, setTick] = useState(0);
+  const [infoOpen, setInfoOpen] = useState(false);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const endMs = new Date(endsAtIso).getTime();
+  if (Number.isNaN(endMs)) return null;
+
+  const diffMs = endMs - Date.now();
+  const expired = diffMs <= 0;
+  const urgent = !expired && diffMs <= 10 * 86400000;
+
+  const startedLabel = formatTrDateTime(team.subscription_started_at);
+  const endLabel = formatTrDateTime(endsAtIso);
+  const subtitle = expired ? 'Süre doldu' : `Kalan: ${formatCountdown(diffMs)}`;
+
+  const cardStyle = [
+    styles.shiftDetailCard,
+    styles.subscriptionRowCard,
+    expired && styles.subscriptionRowCardExpired,
+    urgent && !expired && styles.subscriptionRowCardUrgent,
+  ];
 
   return (
-    <View
-      style={[
-        styles.subBanner,
-        urgent && styles.subBannerUrgent,
-        expired && styles.subBannerExpired,
-      ]}
-    >
-      <Ionicons
-        name={expired ? 'alert-circle' : 'time-outline'}
-        size={22}
-        color={expired ? colors.error : urgent ? colors.accent : colors.textSecondary}
-      />
-      <View style={styles.subBannerTextWrap}>
-        <Text style={styles.subBannerTitle}>Paket süresi</Text>
-        {expired ? (
-          <Text style={styles.subBannerBody}>
-            "{teamName}" paket süresi {endLabel} tarihinde sona erdi. Yenileme için destek ile iletişime geçin.
+    <>
+      <View style={cardStyle}>
+        <View style={[styles.subscriptionIconWrap, expired && styles.subscriptionIconWrapExpired]}>
+          <Ionicons
+            name={expired ? 'alert-circle' : 'hourglass-outline'}
+            size={20}
+            color={expired ? colors.error : colors.black}
+          />
+        </View>
+        <View style={styles.shiftDetailText}>
+          <Text style={[styles.subscriptionTitle, expired && styles.subscriptionTitleExpired]}>Paket süresi</Text>
+          <Text style={styles.subscriptionSubtitle} numberOfLines={1}>
+            {subtitle}
           </Text>
-        ) : urgent ? (
-          <Text style={styles.subBannerBody}>
-            Aboneliğinize yaklaşık <Text style={styles.subBannerStrong}>{daysLeft} gün</Text> kaldı (bitiş{' '}
-            {endLabel}). Yakında bir bildirim de alacaksınız.
-          </Text>
-        ) : (
-          <Text style={styles.subBannerBody}>
-            Bitiş tarihi: <Text style={styles.subBannerStrong}>{endLabel}</Text>
-            {daysLeft !== null ? ` · ${daysLeft} gün kaldı` : null}
-          </Text>
-        )}
+        </View>
+        <Pressable
+          onPress={() => setInfoOpen(true)}
+          hitSlop={8}
+          style={({ pressed }) => [styles.durationInfoBtn, pressed && styles.durationInfoBtnPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Paket süresi detayı"
+        >
+          <Ionicons name="information-circle-outline" size={20} color={colors.accent} />
+        </Pressable>
       </View>
-    </View>
+
+      <Modal visible={infoOpen} animationType="fade" transparent onRequestClose={() => setInfoOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Paket süresi detayı</Text>
+              <Pressable onPress={() => setInfoOpen(false)} hitSlop={12}>
+                <Text style={styles.modalClose}>✕</Text>
+              </Pressable>
+            </View>
+            <ScrollView style={styles.durationInfoScroll} showsVerticalScrollIndicator={false}>
+              <View style={styles.infoDetailRow}>
+                <Text style={styles.infoDetailLabel}>Başlangıç</Text>
+                <Text style={styles.infoDetailValue}>{startedLabel}</Text>
+              </View>
+              <View style={styles.infoDetailRow}>
+                <Text style={styles.infoDetailLabel}>Bitiş</Text>
+                <Text style={styles.infoDetailValue}>{endLabel}</Text>
+              </View>
+              <View style={styles.infoDetailRow}>
+                <Text style={styles.infoDetailLabel}>Plan</Text>
+                <Text style={styles.infoDetailValue}>
+                  {planLabel(
+                    team.subscription_plan ?? null,
+                    team.subscription_billing_months ?? null,
+                    team.manual_extension_hours ?? null
+                  )}
+                </Text>
+              </View>
+              {!expired ? (
+                <View style={styles.infoDetailRow}>
+                  <Text style={styles.infoDetailLabel}>Kalan süre (canlı)</Text>
+                  <Text style={styles.infoDetailValueMono}>{formatCountdown(diffMs)}</Text>
+                </View>
+              ) : (
+                <View style={styles.infoDetailRow}>
+                  <Text style={styles.infoDetailLabel}>Durum</Text>
+                  <Text style={styles.infoDetailValue}>Süre sona erdi</Text>
+                </View>
+              )}
+              <Text style={styles.infoModalParagraph}>
+                Başlangıç ve bitiş, ekibin oluşturulduğu dönemdeki abonelik kaydınıza göredir. Kalan süre her saniye
+                güncellenir.
+              </Text>
+            </ScrollView>
+            <Button title="Tamam" onPress={() => setInfoOpen(false)} fullWidth style={styles.modalBtn} />
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -157,8 +290,26 @@ export function TeamDetailScreen({ route }: Props) {
   const navigation = useNavigation<Nav>();
   const { team } = route.params;
   const { businessDateKey } = useBusinessDayClock();
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const user = useAuthStore((s) => s.user);
+  const staffUser = isPlatformStaff(user);
   const isManager = team.role === 'MANAGER' || team.owner_id === user?.id;
+
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!team.subscription_ends_at) return;
+    const id = setInterval(() => setNowTick(Date.now()), 15000);
+    return () => clearInterval(id);
+  }, [team.subscription_ends_at]);
+
+  const subscriptionExpired = (() => {
+    if (!team.subscription_ends_at) return false;
+    const endMs = new Date(team.subscription_ends_at).getTime();
+    if (Number.isNaN(endMs)) return false;
+    return endMs - nowTick <= 0;
+  })();
+  const isLockedForManager = isManager && subscriptionExpired;
+
   const [activeTab, setActiveTab] = useState<TeamTabKey>('genel');
   const [selectedWeekStart, setSelectedWeekStart] = useState<Date>(() => getCurrentWeekMonday());
   const [teamScheduleDayIndex, setTeamScheduleDayIndex] = useState(() => {
@@ -238,9 +389,42 @@ export function TeamDetailScreen({ route }: Props) {
     }
   };
 
+  /** Sahip veya MANAGER: doğrudan silme (Teams listesindeki “Ekibi sil” ile aynı). */
+  const handleCloseTeamAsLeader = () => {
+    themedAlert(
+      'Ekibi sil',
+      `"${team.name}" ekibini silmek istediğinize emin misiniz? Ekip listeden kaldırılır.`,
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Ekibi sil',
+          style: 'destructive',
+          onPress: async () => {
+            setLeaveLoading(true);
+            try {
+              await closeTeam(team.id);
+              if (user?.id) {
+                queryClient.invalidateQueries({ queryKey: ['my-teams', user.id] });
+                queryClient.invalidateQueries({ queryKey: ['owned-teams-count', user.id] });
+              }
+              queryClient.invalidateQueries({ queryKey: ['platform-all-teams'] });
+              queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+              queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
+              navigation.reset({ index: 0, routes: [{ name: 'TeamsList' }] });
+            } catch (e) {
+              themedAlert('Hata', e instanceof Error ? e.message : 'Ekip kapatılamadı.');
+            } finally {
+              setLeaveLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const handleLeaveTeam = () => {
     if (!user?.id) return;
-    Alert.alert(
+    themedAlert(
       'Ekipten ayrıl',
       `"${team.name}" takımından ayrılmak istediğinize emin misiniz?`,
       [
@@ -257,7 +441,38 @@ export function TeamDetailScreen({ route }: Props) {
               queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
               navigation.reset({ index: 0, routes: [{ name: 'TeamsList' }] });
             } catch (e) {
-              Alert.alert('Hata', e instanceof Error ? e.message : 'Ekipten ayrılınamadı.');
+              themedAlert('Hata', e instanceof Error ? e.message : 'Ekipten ayrılınamadı.');
+            } finally {
+              setLeaveLoading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleDeleteTeamAsStaff = () => {
+    themedAlert(
+      'Ekibi sil',
+      `"${team.name}" ekibini silmek istediğinize emin misiniz? Ekip listeden kaldırılır.`,
+      [
+        { text: 'İptal', style: 'cancel' },
+        {
+          text: 'Ekibi sil',
+          style: 'destructive',
+          onPress: async () => {
+            setLeaveLoading(true);
+            try {
+              await platformStaffCloseTeam(team.id);
+              if (user?.id) {
+                queryClient.invalidateQueries({ queryKey: ['my-teams', user.id] });
+              }
+              queryClient.invalidateQueries({ queryKey: ['platform-all-teams'] });
+              queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
+              queryClient.invalidateQueries({ queryKey: ['team-members-on-shift', team.id] });
+              navigation.reset({ index: 0, routes: [{ name: 'TeamsList' }] });
+            } catch (e) {
+              themedAlert('Hata', e instanceof Error ? e.message : 'Ekip kapatılamadı.');
             } finally {
               setLeaveLoading(false);
             }
@@ -273,7 +488,7 @@ export function TeamDetailScreen({ route }: Props) {
       const result = await createTeamInviteLink(team.id, inviteDurationMinutes);
       setInviteLink(result.link);
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Link oluşturulamadı.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Link oluşturulamadı.');
     } finally {
       setInviteLoading(false);
     }
@@ -282,7 +497,7 @@ export function TeamDetailScreen({ route }: Props) {
   const handleCopyInviteLink = async () => {
     if (!inviteLink) return;
     await Clipboard.setStringAsync(inviteLink);
-    Alert.alert('Kopyalandı', 'Davet linki panoya kopyalandı.');
+    themedAlert('Kopyalandı', 'Davet linki panoya kopyalandı.');
   };
 
   const handleShareInviteLink = async () => {
@@ -409,7 +624,11 @@ export function TeamDetailScreen({ route }: Props) {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={[styles.content, !isManager && styles.contentMember]}
+      contentContainerStyle={[
+        styles.content,
+        !isManager && styles.contentMember,
+        { paddingBottom: tabScrollBottomPad },
+      ]}
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.teamHeaderRow}>
@@ -447,7 +666,36 @@ export function TeamDetailScreen({ route }: Props) {
                 )}
               </View>
             </Pressable>
+            <Pressable
+              onPress={handleCloseTeamAsLeader}
+              disabled={leaveLoading}
+              style={({ pressed }) => [
+                styles.deleteTeamHeaderBtn,
+                pressed && styles.joinInboxBtnPressed,
+                leaveLoading && styles.leaveChipDisabled,
+              ]}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Ekibi sil"
+            >
+              <Ionicons name="trash-outline" size={22} color={colors.error} />
+            </Pressable>
           </View>
+        ) : staffUser ? (
+          <Pressable
+            onPress={handleDeleteTeamAsStaff}
+            disabled={leaveLoading}
+            style={({ pressed }) => [
+              styles.leaveChip,
+              pressed && styles.leaveChipPressed,
+              leaveLoading && styles.leaveChipDisabled,
+            ]}
+          >
+            <Ionicons name="trash-outline" size={16} color={colors.error} />
+            <Text style={styles.leaveChipText}>
+              {leaveLoading ? 'Siliniyor…' : 'Ekibi sil'}
+            </Text>
+          </Pressable>
         ) : (
           <Pressable
             onPress={handleLeaveTeam}
@@ -466,11 +714,14 @@ export function TeamDetailScreen({ route }: Props) {
         )}
       </View>
 
-      <TabBar tabs={TABS} activeKey={activeTab} onChange={setActiveTab} />
+      {isManager && team.subscription_ends_at ? <TeamSubscriptionCountdown team={team} /> : null}
 
-      {isManager && team.subscription_ends_at ? (
-        <TeamSubscriptionBanner teamName={team.name} endsAtIso={team.subscription_ends_at} />
-      ) : null}
+      <View style={styles.managementAreaWrap}>
+      <View
+        style={isLockedForManager ? styles.dimmedContent : undefined}
+        pointerEvents={isLockedForManager ? 'none' : 'auto'}
+      >
+      <TabBar tabs={TABS} activeKey={activeTab} onChange={setActiveTab} />
 
       {activeTab === 'genel' && (
         <>
@@ -865,6 +1116,21 @@ export function TeamDetailScreen({ route }: Props) {
           )}
         </>
       )}
+      </View>
+      {isLockedForManager ? (
+        <View style={styles.lockFloatWrap} pointerEvents="box-none">
+          <View style={styles.lockCard}>
+            <View style={styles.lockedIconWrap}>
+              <Ionicons name="lock-closed" size={44} color={colors.accent} />
+            </View>
+            <Text style={styles.lockedTitle}>Yönetim alanı kilitli</Text>
+            <Text style={styles.lockedDescription}>
+              Paket süresi dolduğu için ekip yönetimi geçici olarak kilitlendi. Devam etmek için yetkili biriyle iletişime geçin.
+            </Text>
+          </View>
+        </View>
+      ) : null}
+      </View>
 
       <TeamScheduleTableModal
         visible={teamScheduleFullscreenOpen}
@@ -934,7 +1200,7 @@ export function TeamDetailScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   contentMember: { paddingTop: spacing.md },
   teamHeaderRow: {
     flexDirection: 'row',
@@ -966,6 +1232,11 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   joinInboxBtn: {
+    paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
+    justifyContent: 'center',
+  },
+  deleteTeamHeaderBtn: {
     paddingHorizontal: spacing.xs,
     paddingVertical: spacing.xs,
     justifyContent: 'center',
@@ -1551,40 +1822,146 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   shiftCard: { marginBottom: spacing.sm },
-  subBanner: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+  /** Paket süresi: Vardiya detayı ile aynı dil ama bir tık daha kompakt */
+  subscriptionRowCard: {
+    marginTop: 0,
+    paddingTop: 10,
+    paddingBottom: 10,
+    paddingLeft: spacing.md,
+    paddingRight: spacing.md,
     gap: spacing.sm,
     marginBottom: spacing.md,
-    padding: spacing.md,
     borderRadius: borderRadius.md,
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  subBannerUrgent: {
-    backgroundColor: 'rgba(212, 175, 55, 0.1)',
-    borderColor: 'rgba(212, 175, 55, 0.35)',
+  subscriptionIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  subBannerExpired: {
+  subscriptionTitle: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+  },
+  subscriptionSubtitle: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    marginTop: 1,
+  },
+  subscriptionRowCardUrgent: {
+    borderColor: 'rgba(212, 175, 55, 0.65)',
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+  },
+  subscriptionRowCardExpired: {
+    borderColor: 'rgba(239, 68, 68, 0.5)',
     backgroundColor: 'rgba(239, 68, 68, 0.08)',
-    borderColor: 'rgba(239, 68, 68, 0.35)',
   },
-  subBannerTextWrap: { flex: 1, minWidth: 0 },
-  subBannerTitle: {
-    ...typography.small,
+  subscriptionIconWrapExpired: {
+    backgroundColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  subscriptionTitleExpired: {
+    color: colors.error,
+  },
+  managementAreaWrap: {
+    position: 'relative',
+  },
+  dimmedContent: {
+    opacity: 0.35,
+  },
+  lockFloatWrap: {
+    position: 'absolute',
+    top: spacing.lg,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  lockCard: {
+    width: '100%',
+    maxWidth: 360,
+    paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.lg,
+    backgroundColor: 'rgba(22, 22, 24, 0.92)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212, 175, 55, 0.32)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.4,
+    shadowRadius: 14,
+    elevation: 10,
+  },
+  lockedIconWrap: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+    marginBottom: spacing.xs,
+  },
+  lockedTitle: {
+    fontSize: 18,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+    textAlign: 'center',
+  },
+  lockedDescription: {
+    fontSize: 14,
+    fontFamily: fonts.regular,
+    lineHeight: 20,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: spacing.sm,
+  },
+  durationInfoBtn: {
+    padding: 2,
+  },
+  durationInfoBtnPressed: {
+    opacity: 0.75,
+  },
+  durationInfoScroll: {
+    maxHeight: 360,
+    marginBottom: spacing.sm,
+  },
+  infoDetailRow: {
+    marginBottom: spacing.md,
+  },
+  infoDetailLabel: {
+    fontSize: 11,
     fontFamily: fonts.semibold,
     color: colors.textMuted,
     textTransform: 'uppercase',
-    letterSpacing: 0.8,
+    letterSpacing: 0.6,
     marginBottom: 4,
   },
-  subBannerBody: {
+  infoDetailValue: {
+    ...typography.body,
+    fontFamily: fonts.regular,
+    color: colors.textPrimary,
+    lineHeight: 22,
+  },
+  infoDetailValueMono: {
+    ...typography.body,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    letterSpacing: 0.4,
+  },
+  infoModalParagraph: {
     ...typography.caption,
     color: colors.textSecondary,
     lineHeight: 22,
+    marginTop: spacing.sm,
   },
-  subBannerStrong: { color: colors.textPrimary, fontFamily: fonts.semibold },
   shiftDate: { fontSize: 14, color: colors.textPrimary, fontWeight: '600' },
   shiftTime: { fontSize: 13, color: colors.textSecondary, marginTop: 4 },
   shiftUser: { fontSize: 12, color: colors.accent, marginTop: 4 },

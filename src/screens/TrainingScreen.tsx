@@ -1,7 +1,5 @@
 import React, { useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Card, Button } from '../components';
 import { useAuthStore } from '../store/authStore';
@@ -13,26 +11,7 @@ import {
   type TrainingWithProgress,
   type QuizQuestionForUI,
 } from '../services/training';
-import { updateProfileXP } from '../services/auth';
-import { getProfile } from '../services/auth';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
-
-const LEVEL_TO_GRADE: Record<string, string> = {
-  Beginner: 'A1',
-  'Junior Barista': 'A2',
-  Barista: 'B1',
-  'Senior Barista': 'B2',
-  'Head Barista': 'C1',
-};
-
-/** Tüm seviyeler ve açıklamaları – bilgi (i) butonu için */
-const LEVELS_INFO = [
-  { level: 'Beginner', grade: 'A1', desc: 'Tadımlık (Çaylak). Kahve dünyasına ilk adım. Temel kavramları öğrenirsin.' },
-  { level: 'Junior Barista', grade: 'A2', desc: 'Başlangıç. Espresso, süt ve filtre kahve temelleriyle tanışırsın.' },
-  { level: 'Barista', grade: 'B1', desc: 'Orta seviye. Demleme süreleri, latte art ve menü çeşitlerine hakim olursun.' },
-  { level: 'Senior Barista', grade: 'B2', desc: 'İleri. Arıza tespiti, kalite kontrolü ve ekip içi rehberlik becerileri.' },
-  { level: 'Head Barista', grade: 'C1', desc: 'Usta. Eğitim tasarımı, menü optimizasyonu ve alan uzmanlığı.' },
-];
 
 const CATEGORIES = [
   { id: 'all', label: 'Tümü' },
@@ -43,20 +22,16 @@ const CATEGORIES = [
 
 export function TrainingScreen() {
   const user = useAuthStore((s) => s.user);
-  const setUser = useAuthStore((s) => s.setUser);
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<'active' | 'completed'>('active');
   const [activeFilter, setActiveFilter] = useState('all');
   const [selectedTraining, setSelectedTraining] = useState<TrainingWithProgress | null>(null);
   const [showQuiz, setShowQuiz] = useState(false);
-  const [quizStep, setQuizStep] = useState(1);
+  const [quizStep, setQuizStep] = useState<number | 'result'>(1);
   const [quizScore, setQuizScore] = useState(0);
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestionForUI[]>([]);
-  const [showLevelInfoModal, setShowLevelInfoModal] = useState(false);
 
   const userId = user?.id ?? '';
-  const grade = LEVEL_TO_GRADE[user?.level ?? 'Beginner'] ?? 'A1';
-  const points = user?.experience_points ?? 0;
 
   const { data: trainings = [] } = useQuery({
     queryKey: ['trainings-global'],
@@ -81,15 +56,13 @@ export function TrainingScreen() {
     return trainings.map((t) => {
       const p = progressMap[t.id];
       const completed = p?.completed ?? false;
-      const required = t.required_points ?? 0;
-      const locked = activeTab === 'active' && points < required;
-      return { ...t, completed, score: p?.score ?? null, locked };
+      return { ...t, completed, score: p?.score ?? null, locked: false };
     });
-  }, [trainings, progressList, activeTab, points]);
+  }, [trainings, progressMap]);
 
   const activeList = useMemo(
-    () => trainingsWithProgress.filter((t) => t.course_level === grade && !t.completed),
-    [trainingsWithProgress, grade]
+    () => trainingsWithProgress.filter((t) => !t.completed),
+    [trainingsWithProgress]
   );
   const completedList = useMemo(
     () => trainingsWithProgress.filter((t) => t.completed),
@@ -97,23 +70,10 @@ export function TrainingScreen() {
   );
   const list = activeTab === 'active' ? activeList : completedList;
 
-  const gradeTrainings = useMemo(
-    () => trainingsWithProgress.filter((t) => t.course_level === grade),
-    [trainingsWithProgress, grade]
-  );
-  const gradeCompleted = useMemo(
-    () => gradeTrainings.filter((t) => t.completed).length,
-    [gradeTrainings]
-  );
-  const completionPercent = gradeTrainings.length
-    ? Math.round((gradeCompleted / gradeTrainings.length) * 100)
-    : 0;
-  const levelLabel = user?.level ?? 'Beginner';
   const filteredList =
     activeFilter === 'all' ? list : list.filter((t) => t.category === activeFilter);
 
   const openTraining = (t: TrainingWithProgress) => {
-    if (t.locked) return;
     setSelectedTraining(t);
     setShowQuiz(false);
     setQuizStep(1);
@@ -140,7 +100,7 @@ export function TrainingScreen() {
       completed: boolean;
       score: number | null;
     }) => upsertTrainingProgress(trainingId, userId, completed, score),
-    onSuccess: (_data, { trainingId }) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['training-progress', userId] });
       queryClient.invalidateQueries({ queryKey: ['trainings-global'] });
       setSelectedTraining(null);
@@ -151,28 +111,25 @@ export function TrainingScreen() {
   const handleQuizAnswer = (questionIndex: number, chosenIndex: number) => {
     const q = quizQuestions[questionIndex];
     const correct = chosenIndex === q.correct_index;
+    const nextScore = quizScore + (correct ? 1 : 0);
     if (correct) setQuizScore((s) => s + 1);
 
     if (questionIndex + 1 < quizQuestions.length) {
       setQuizStep(questionIndex + 2);
     } else {
       setQuizStep('result');
-      const passed = (quizScore + (correct ? 1 : 0)) >= 3;
+      const passed = nextScore >= 3;
       if (selectedTraining && passed) {
-        const newPoints = points + (selectedTraining.points ?? 0);
         upsertProgress.mutate({
           trainingId: selectedTraining.id,
           completed: true,
-          score: quizScore + (correct ? 1 : 0),
-        });
-        updateProfileXP(userId, newPoints, user!.level).then(() => {
-          getProfile(userId).then((profile) => profile && setUser(profile));
+          score: nextScore,
         });
       } else if (selectedTraining && !passed) {
         upsertProgress.mutate({
           trainingId: selectedTraining.id,
           completed: false,
-          score: quizScore + (correct ? 1 : 0),
+          score: nextScore,
         });
       }
     }
@@ -189,82 +146,17 @@ export function TrainingScreen() {
       contentContainerStyle={styles.content}
       showsVerticalScrollIndicator={false}
     >
-      <Text style={styles.title}>Eğitim <Text style={styles.titleAccent}>Akademisi</Text></Text>
-      <Text style={styles.subtitle}>Uzmanlık yolculuğunuza devam edin.</Text>
-
-      <View style={styles.levelBlock}>
-        <LinearGradient
-          colors={['#1a1a1e', '#121214', '#0e0e10']}
-          style={styles.levelBlockBg}
-        />
-        <View style={styles.levelBlockStarBg}>
-          <Ionicons name="star" size={210} color={colors.accent} />
-        </View>
-        <View style={styles.levelBlockHeader}>
-          <Text style={styles.levelBlockCaption}>MEVCUT SEVİYE</Text>
-          <Pressable
-            onPress={() => setShowLevelInfoModal(true)}
-            hitSlop={12}
-            style={styles.levelInfoBtn}
-          >
-            <Ionicons name="information-circle-outline" size={22} color={colors.textSecondary} />
-          </Pressable>
-        </View>
-        <View style={styles.levelBlockBody}>
-          <View style={styles.levelBlockLeft}>
-            <Text style={styles.levelBlockName}>{levelLabel.toUpperCase()}</Text>
-            <View style={styles.levelGradePill}>
-              <Text style={styles.levelGradeText}>{grade}</Text>
-            </View>
-          </View>
-          <View style={styles.levelBlockRight}>
-            <View style={styles.levelPointsWrap}>
-              <Text style={styles.levelPointsValue}>{points}</Text>
-              <Text style={styles.levelPointsLabel} numberOfLines={2}>Eğitim Puanı</Text>
-            </View>
-          </View>
-        </View>
-        <View style={styles.levelProgressHeader}>
-          <Text style={styles.levelProgressDesc}>{grade} derslerinin tamamlama oranı</Text>
-          <Text style={styles.levelPercent}>%{completionPercent}</Text>
-        </View>
-        <View style={styles.levelProgressTrack}>
-          <View style={[styles.levelProgressFill, { width: `${completionPercent}%` }]} />
-        </View>
-      </View>
-
-      <Modal visible={showLevelInfoModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalBox}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalHeaderTitle}>Seviyeler</Text>
-              <Pressable onPress={() => setShowLevelInfoModal(false)} style={styles.modalClose}>
-                <Text style={styles.modalCloseText}>✕ Kapat</Text>
-              </Pressable>
-            </View>
-            <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false}>
-              {LEVELS_INFO.map((item, idx) => (
-                <View key={item.level} style={styles.levelInfoRow}>
-                  <View style={styles.levelInfoGradeBadge}>
-                    <Text style={styles.levelInfoGradeText}>{item.grade}</Text>
-                  </View>
-                  <View style={styles.levelInfoTextWrap}>
-                    <Text style={styles.levelInfoName}>{item.level}</Text>
-                    <Text style={styles.levelInfoDesc}>{item.desc}</Text>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
+      <Text style={styles.title}>Eğitim <Text style={styles.titleAccent}>içerikleri</Text></Text>
+      <Text style={styles.subtitle}>
+        İsteğe bağlı referans materyaller. İleride ekip performansı ayrıca değerlendirilecek.
+      </Text>
 
       <View style={styles.tabRow}>
         <Pressable
           style={[styles.tab, activeTab === 'active' && styles.tabActive]}
           onPress={() => setActiveTab('active')}
         >
-          <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>Aktif Eğitimler</Text>
+          <Text style={[styles.tabText, activeTab === 'active' && styles.tabTextActive]}>Devam edenler</Text>
         </Pressable>
         <Pressable
           style={[styles.tab, activeTab === 'completed' && styles.tabActive]}
@@ -289,7 +181,9 @@ export function TrainingScreen() {
       {filteredList.length === 0 ? (
         <Card style={styles.emptyCard}>
           <Text style={styles.emptyText}>
-            {activeTab === 'active' ? 'Bu alanda açık veya yeni bir ders görünmüyor.' : 'Henüz tamamlanmış bir kursunuz yok.'}
+            {activeTab === 'active'
+              ? 'Bu filtrede açık içerik yok.'
+              : 'Henüz tamamlanmış içerik yok.'}
           </Text>
         </Card>
       ) : (
@@ -297,14 +191,9 @@ export function TrainingScreen() {
           {filteredList.map((t) => (
             <Card
               key={t.id}
-              style={[styles.courseCard, t.locked && styles.courseCardLocked, t.completed && styles.courseCardDone]}
+              style={[styles.courseCard, t.completed && styles.courseCardDone]}
               onPress={() => openTraining(t)}
             >
-              {t.locked && (
-                <View style={styles.lockOverlay}>
-                  <Text style={styles.lockIcon}>🔒</Text>
-                </View>
-              )}
               {t.image_url ? (
                 <View style={[styles.courseImage, { backgroundColor: colors.surface }]} />
               ) : (
@@ -316,7 +205,7 @@ export function TrainingScreen() {
                 <Text style={styles.courseTitle} numberOfLines={2}>{t.title}</Text>
                 <View style={styles.courseMeta}>
                   <Text style={styles.courseCategory}>{CATEGORIES.find((c) => c.id === t.category)?.label ?? t.category}</Text>
-                  <Text style={styles.coursePoints}>+{t.points ?? 0} PT</Text>
+                  {t.course_level ? <Text style={styles.courseLevel}>{t.course_level}</Text> : null}
                 </View>
               </View>
             </Card>
@@ -337,7 +226,7 @@ export function TrainingScreen() {
               {!showQuiz ? (
                 <>
                   <Text style={styles.modalContent}>{selectedTraining?.content}</Text>
-                  <Button title="Okudum, Sınava Geç" onPress={startQuiz} fullWidth style={styles.modalBtn} />
+                  <Button title="Okudum, kısa sınava geç" onPress={startQuiz} fullWidth style={styles.modalBtn} />
                 </>
               ) : quizQuestions.length > 0 && typeof quizStep === 'number' && quizStep <= quizQuestions.length ? (
                 <>
@@ -356,8 +245,12 @@ export function TrainingScreen() {
                 </>
               ) : quizStep === 'result' ? (
                 <>
-                  <Text style={styles.resultTitle}>{quizScore >= 3 ? 'Sınavı Geçtiniz!' : 'Sınavı Geçemediniz'}</Text>
-                  <Text style={styles.resultText}>5 sorudan {quizScore} doğru. {quizScore >= 3 ? `+${selectedTraining?.points ?? 0} PT kazanıldı.` : 'Geçmek için en az 3 doğru gerekir.'}</Text>
+                  <Text style={styles.resultTitle}>{quizScore >= 3 ? 'Tamamladınız' : 'Tekrar deneyin'}</Text>
+                  <Text style={styles.resultText}>
+                    {quizScore >= 3
+                      ? `Kısa sınav: ${quizScore}/5 doğru. İçerik tamamlandı olarak işlendi.`
+                      : `Kısa sınav: ${quizScore}/5 doğru. Geçmek için en az 3 doğru gerekir.`}
+                  </Text>
                   <Button title="Kapat" onPress={closeModal} fullWidth />
                 </>
               ) : null}
@@ -375,168 +268,6 @@ const styles = StyleSheet.create({
   title: { ...typography.title, marginBottom: 4, color: colors.textPrimary },
   titleAccent: { color: colors.accent },
   subtitle: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.lg },
-  levelBlock: {
-    marginBottom: spacing.md,
-    borderRadius: 16,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderLeftWidth: 4,
-    borderLeftColor: colors.accent,
-    borderTopWidth: 1,
-    borderRightWidth: 1,
-    borderBottomWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.05)',
-    borderRightColor: 'rgba(255,255,255,0.05)',
-    borderBottomColor: 'rgba(255,255,255,0.05)',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  levelBlockBg: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 16,
-  },
-  levelBlockStarBg: {
-    position: 'absolute',
-    right: -100,
-    top: '50%',
-    marginTop: -90,
-    bottom: 0,
-    width: 260,
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.22,
-  },
-  levelBlockHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  levelBlockCaption: {
-    fontSize: 13,
-    fontFamily: fonts.bold,
-    color: colors.accent,
-    textTransform: 'uppercase',
-    letterSpacing: 1.2,
-  },
-  levelInfoBtn: { padding: spacing.xs },
-  levelBlockBody: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: spacing.sm,
-  },
-  levelBlockLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
-    flex: 1,
-  },
-  levelBlockName: {
-    fontSize: 20,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    letterSpacing: 1,
-  },
-  levelGradePill: {
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: colors.accent,
-  },
-  levelGradeText: {
-    fontSize: 13,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    letterSpacing: 0.8,
-  },
-  levelBlockRight: {
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    minHeight: 44,
-    minWidth: 100,
-    position: 'relative',
-  },
-  levelPointsWrap: { alignItems: 'flex-end', zIndex: 1, minWidth: 90 },
-  levelPointsValue: {
-    fontSize: 28,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-  },
-  levelPointsLabel: {
-    fontSize: 12,
-    fontFamily: fonts.bold,
-    color: colors.textSecondary,
-    marginTop: 1,
-    textTransform: 'uppercase',
-  },
-  levelProgressHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 3,
-  },
-  levelProgressDesc: {
-    fontSize: 13,
-    fontFamily: fonts.regular,
-    color: colors.textSecondary,
-    flex: 1,
-  },
-  levelPercent: {
-    fontSize: 15,
-    fontFamily: fonts.bold,
-    color: colors.textPrimary,
-    marginLeft: spacing.sm,
-  },
-  levelProgressTrack: {
-    height: 6,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  levelProgressFill: {
-    height: '100%',
-    backgroundColor: colors.accent,
-    borderRadius: 3,
-  },
-  levelInfoRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: spacing.md,
-    gap: spacing.sm,
-  },
-  levelInfoGradeBadge: {
-    width: 36,
-    height: 36,
-    borderRadius: borderRadius.sm,
-    backgroundColor: 'rgba(212, 175, 55, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  levelInfoGradeText: {
-    ...typography.small,
-    fontFamily: fonts.bold,
-    color: colors.accent,
-  },
-  levelInfoTextWrap: { flex: 1 },
-  levelInfoName: {
-    ...typography.subtitle,
-    color: colors.textPrimary,
-    marginBottom: 2,
-  },
-  levelInfoDesc: {
-    ...typography.caption,
-    fontSize: 14,
-    color: colors.textSecondary,
-    lineHeight: 20,
-  },
   tabRow: { flexDirection: 'row', backgroundColor: colors.surface, padding: 6, borderRadius: 24, marginBottom: spacing.lg },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 16 },
   tabActive: { backgroundColor: colors.accent },
@@ -552,7 +283,6 @@ const styles = StyleSheet.create({
   emptyText: { color: colors.textSecondary, fontSize: 14 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   courseCard: { width: '47%', overflow: 'hidden' },
-  courseCardLocked: { opacity: 0.6 },
   courseCardDone: { borderWidth: 1, borderColor: colors.accent },
   courseImage: { height: 100, borderRadius: borderRadius.sm },
   courseImagePlaceholder: { alignItems: 'center', justifyContent: 'center' },
@@ -560,10 +290,8 @@ const styles = StyleSheet.create({
   courseBody: { padding: spacing.sm },
   courseTitle: { fontSize: 13, color: colors.textPrimary, marginBottom: spacing.xs },
   courseMeta: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  courseCategory: { fontSize: 11, color: colors.textSecondary },
-  coursePoints: { fontSize: 11, color: colors.accent, fontWeight: '700' },
-  lockOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', zIndex: 1 },
-  lockIcon: { fontSize: 28 },
+  courseCategory: { fontSize: 11, color: colors.textSecondary, flex: 1 },
+  courseLevel: { fontSize: 11, color: colors.textMuted, fontFamily: fonts.semibold },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.9)', justifyContent: 'center', padding: spacing.md },
   modalBox: { backgroundColor: colors.glassBg, borderRadius: borderRadius.lg, borderWidth: 1, borderColor: colors.glassBorder, maxHeight: '85%' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border },

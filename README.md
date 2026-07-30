@@ -1,8 +1,6 @@
 # Ekibio (Double Shot)
 
-Kafe ve barista ekipleri için **vardiya**, **operasyon görevleri**, **eğitim**, **tarifler**, **stok / eksik yönetimi** ve **takım iletişimi** odaklı bir mobil uygulama. Mağaza içi süreçleri tek uygulamada toplar; Supabase üzerinde çok kiracılı (organizasyon / takım) bir veri modeli ve ayrıntılı **RBAC** (rol tabanlı erişim) kullanır.
-
-> **Not:** Depo adı `double-shot-app`, Expo yapılandırmasında görünen uygulama adı **Ekibio** (`app.json` → `name`).
+Kafe, restoran vb. ekipler için **vardiya**, **operasyon görevleri**, **eğitim**, **tarifler**, **stok / eksik yönetimi** ve **takım iletişimi** odaklı bir mobil uygulama. Mağaza içi süreçleri tek uygulamada toplar; Supabase üzerinde çok kiracılı (organizasyon / takım) bir veri modeli ve ayrıntılı **RBAC** (rol tabanlı erişim) kullanır.
 
 ---
 

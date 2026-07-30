@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Card, Input, Button } from '../components';
 import { listRoleLevels, createRoleLevel, deleteRoleLevel } from '../services/rbac';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { colors, spacing, typography, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { Team } from '../types';
 import type { Role, RoleLevel } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'RoleLevel'> };
 
 export function RoleLevelScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const navigation = useNavigation();
   const { team, role } = route.params;
   const queryClient = useQueryClient();
@@ -31,14 +34,14 @@ export function RoleLevelScreen({ route }: Props) {
       setNewLevelName('');
       queryClient.invalidateQueries({ queryKey: ['role-levels', role.id] });
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Seviye eklenemedi.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Seviye eklenemedi.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleDeleteLevel = (level: RoleLevel) => {
-    Alert.alert('Seviyeyi sil', `"${level.name}" silinsin mi?`, [
+    themedAlert('Seviyeyi sil', `"${level.name}" silinsin mi?`, [
       { text: 'İptal', style: 'cancel' },
       {
         text: 'Sil',
@@ -48,7 +51,7 @@ export function RoleLevelScreen({ route }: Props) {
             await deleteRoleLevel(level.id);
             queryClient.invalidateQueries({ queryKey: ['role-levels', role.id] });
           } catch (e) {
-            Alert.alert('Hata', e instanceof Error ? e.message : 'Silinemedi.');
+            themedAlert('Hata', e instanceof Error ? e.message : 'Silinemedi.');
           }
         },
       },
@@ -56,7 +59,10 @@ export function RoleLevelScreen({ route }: Props) {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+    >
       <Text style={styles.roleName}>{role.name}</Text>
       <Text style={styles.sectionTitle}>Seviyeler (örn: Junior, Senior, Head)</Text>
 
@@ -95,7 +101,7 @@ export function RoleLevelScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   roleName: { ...typography.title, color: colors.primary, marginBottom: spacing.sm },
   sectionTitle: { ...typography.subtitle, color: colors.accent, marginBottom: spacing.md },
   levelCard: { marginBottom: spacing.sm },

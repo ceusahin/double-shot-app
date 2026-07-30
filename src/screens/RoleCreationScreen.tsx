@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Alert } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { Card, Input, Button } from '../components';
 import { createRole, ensureOrganizationForTeam } from '../services/rbac';
 import { colors, spacing, typography } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { Team } from '../types';
 import type { Role } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
@@ -37,13 +38,13 @@ export function RoleCreationScreen({ route }: Props) {
         return;
       }
       await createRole(organizationId, name.trim(), description.trim() || undefined);
-      Alert.alert('Rol oluşturuldu', 'Yeni rol ekip yönetimi ekranında görünecek.', [
+      themedAlert('Rol oluşturuldu', 'Yeni rol ekip yönetimi ekranında görünecek.', [
         { text: 'Tamam', onPress: () => navigation.goBack() },
       ]);
     } catch (e) {
       const message = e instanceof Error ? e.message : 'Rol oluşturulamadı.';
       setError(message);
-      Alert.alert('Rol oluşturulamadı', message);
+      themedAlert('Rol oluşturulamadı', message);
     } finally {
       setLoading(false);
     }

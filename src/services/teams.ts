@@ -1,12 +1,41 @@
 import { supabase } from './supabase';
+import { getProfile } from './auth';
+import { canUserCreateTeam, isPlatformStaff, type QuotaGrantKind } from './platformAdmin';
 import type { Team, TeamMember, TeamJoinRequest, UserProfile } from '../types';
 import type { BillingMonths, TeamPlanId } from '../constants/teamPlans';
-import { subscriptionPeriodEnd } from '../utils/subscriptionPeriod';
+import { addCalendarDays, subscriptionPeriodEnd } from '../utils/subscriptionPeriod';
 
+/** Paket satın alma veya deneme ile abonelik satırı. */
+export type CreateTeamBilling =
+  | { mode: 'plan'; planId: TeamPlanId; billingMonths: BillingMonths }
+  | { mode: 'trial'; trialDays: number };
+
+export const DEFAULT_TEAM_TRIAL_DAYS = 15;
+
+export function consumptionKindFromBilling(billing: CreateTeamBilling | null | undefined): QuotaGrantKind | null {
+  if (!billing) return null;
+  if (billing.mode === 'trial') return 'trial_15d';
+  const m = billing.billingMonths;
+  if (m === 1) return 'months_1';
+  if (m === 3) return 'months_3';
+  return 'months_6';
+}
+
+/** @deprecated CreateTeamBilling kullanın */
 export type CreateTeamSubscriptionPayload = {
   planId: TeamPlanId;
   billingMonths: BillingMonths;
 };
+
+/** Kullanıcının sahibi olduğu ekip sayısı (teams.owner_id). */
+export async function countTeamsWhereOwner(userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('teams')
+    .select('*', { count: 'exact', head: true })
+    .eq('owner_id', userId);
+  if (error) throw error;
+  return count ?? 0;
+}
 
 function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -23,8 +52,17 @@ export async function createTeam(
   storeLat?: number,
   storeLng?: number,
   storeRadius?: number,
-  subscription?: CreateTeamSubscriptionPayload | null
+  billing?: CreateTeamBilling | null
 ): Promise<Team> {
+  const profile = await getProfile(ownerId);
+  if (!profile) throw new Error('Profil bulunamadı.');
+  const ownedCount = await countTeamsWhereOwner(ownerId);
+  if (!canUserCreateTeam(profile, ownedCount)) {
+    throw new Error(
+      'Takım oluşturma kotanız yok. Süper yöneticinizden süre kotası vermesini isteyin.'
+    );
+  }
+
   const inviteCode = generateInviteCode();
   const startedAt = new Date();
   const insertRow: Record<string, unknown> = {
@@ -35,12 +73,28 @@ export async function createTeam(
     store_longitude: storeLng ?? null,
     store_radius: storeRadius ?? null,
   };
-  if (subscription) {
-    const endsAt = subscriptionPeriodEnd(startedAt, subscription.billingMonths);
-    insertRow.subscription_plan = subscription.planId;
-    insertRow.subscription_billing_months = subscription.billingMonths;
+  if (billing?.mode === 'plan') {
+    const endsAt = subscriptionPeriodEnd(startedAt, billing.billingMonths);
+    insertRow.subscription_plan = billing.planId;
+    insertRow.subscription_billing_months = billing.billingMonths;
     insertRow.subscription_started_at = startedAt.toISOString();
     insertRow.subscription_ends_at = endsAt.toISOString();
+  } else if (billing?.mode === 'trial') {
+    const endsAt = addCalendarDays(startedAt, billing.trialDays);
+    insertRow.subscription_plan = 'trial';
+    insertRow.subscription_billing_months = null;
+    insertRow.subscription_started_at = startedAt.toISOString();
+    insertRow.subscription_ends_at = endsAt.toISOString();
+  }
+
+  const consumeKind = consumptionKindFromBilling(billing ?? null);
+  if (isPlatformStaff(profile)) {
+    insertRow.quota_consumed_kind = null;
+  } else {
+    if (!consumeKind) {
+      throw new Error('Kota türü seçilmedi veya paket bilgisi eksik.');
+    }
+    insertRow.quota_consumed_kind = consumeKind;
   }
 
   const { data, error } = await supabase.from('teams').insert(insertRow).select().single();
@@ -140,11 +194,22 @@ export async function getMyTeams(userId: string): Promise<(Team & { role: string
 
   if (error) throw error;
   return (data ?? [])
-    .filter((row: { teams?: Team }) => row.teams?.is_active !== false)
+    .filter((row: { teams?: Team | null }) => row.teams != null)
     .map((row: { role: string; teams: Team }) => ({
       ...row.teams,
       role: row.role,
     })) as (Team & { role: string })[];
+}
+
+/** Platform yönetimi: uygulamadaki tüm ekipler (RLS: platform personeli). */
+export async function getAllTeamsForPlatformStaff(): Promise<Team[]> {
+  const { data, error } = await supabase
+    .from('teams')
+    .select('*')
+    .order('created_at', { ascending: false });
+
+  if (error) throw new Error(error.message ?? 'Ekipler yüklenemedi.');
+  return (data ?? []) as Team[];
 }
 
 export async function listPendingJoinRequests(teamId?: string): Promise<TeamJoinRequest[]> {
@@ -254,13 +319,16 @@ export async function updateTeamName(teamId: string, name: string): Promise<void
   if (error) throw error;
 }
 
-/** Ekip kapat: is_active = false (owner veya MANAGER). Kapalı ekipler listelenmez. */
+/** Ekip sil: satır kalıcı silinir (owner veya MANAGER; FK CASCADE). */
 export async function closeTeam(teamId: string): Promise<void> {
-  const { error } = await supabase
-    .from('teams')
-    .update({ is_active: false })
-    .eq('id', teamId);
+  const { error } = await supabase.from('teams').delete().eq('id', teamId);
   if (error) throw error;
+}
+
+/** Platform personeli: RPC ile kalıcı silme. */
+export async function platformStaffCloseTeam(teamId: string): Promise<void> {
+  const { error } = await supabase.rpc('platform_staff_close_team', { p_team_id: teamId });
+  if (error) throw new Error(error.message ?? 'Ekip silinemedi.');
 }
 
 export async function getTeamMembers(teamId: string): Promise<TeamMember[]> {
@@ -268,7 +336,7 @@ export async function getTeamMembers(teamId: string): Promise<TeamMember[]> {
     .from('team_members')
     .select(`
       *,
-      user:users(id, name, surname, email, level, experience_points, profile_photo)
+      user:users(id, name, surname, email, profile_photo, created_at)
     `)
     .eq('team_id', teamId)
     .order('joined_at', { ascending: true });
@@ -289,10 +357,7 @@ export async function getTeamMembers(teamId: string): Promise<TeamMember[]> {
             name: (u.name as string) ?? '',
             surname: (u.surname as string) ?? '',
             email: (u.email as string) ?? '',
-            level: (u.level as UserProfile['level']) ?? 'Beginner',
-            experience_points: (u.experience_points as number) ?? 0,
             profile_photo: (u.profile_photo as string | null) ?? null,
-            role: 'BARISTA' as const,
             created_at: (u.created_at as string) ?? '',
           }
         : undefined,

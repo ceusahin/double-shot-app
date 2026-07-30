@@ -7,7 +7,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   Pressable,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -19,6 +18,7 @@ import { LOGIN_SESSION_PREFS_KEY, type LoginSessionPrefs } from '../../auth/logi
 import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
 import { colors, spacing, typography, fonts } from '../../utils/theme';
+import { themedAlert } from '../../utils/themedAlert';
 import { signInWithEmail } from '../../services/auth';
 import { supabase } from '../../services/supabase';
 import { getMyRolesSummary } from '../../services/rbac';
@@ -34,6 +34,22 @@ import {
 
 const DEFAULT_LOGIN_SLOGAN = 'Ekip, shot, günlük ritim.';
 
+function mapLoginError(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  const m = raw.toLowerCase();
+  if (m.includes('email not confirmed') || m.includes('not confirmed')) {
+    return 'E-posta henüz onaylanmamış. Gelen kutunuzdaki onay bağlantısına tıklayın, ardından tekrar giriş yapın. (Geliştirme için Supabase Dashboard → Authentication → Providers → “Confirm email” kapatılabilir.)';
+  }
+  if (
+    m.includes('invalid login') ||
+    m.includes('invalid credentials') ||
+    m.includes('invalid_grant')
+  ) {
+    return 'E-posta veya şifre hatalı. Kayıt olduysanız şifreyi ve e-posta onayını kontrol edin.';
+  }
+  return raw || 'Giriş yapılamadı.';
+}
+
 type Props = {
   navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
 };
@@ -45,7 +61,8 @@ export function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [keepSignedIn, setKeepSignedIn] = useState(false);
+  /** Kapalıyken uygulama yeniden açıldığında oturum silinir; çoğu kullanıcı için açık bırakın. */
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [subtitleText, setSubtitleText] = useState(DEFAULT_LOGIN_SLOGAN);
 
   useEffect(() => {
@@ -124,9 +141,9 @@ export function LoginScreen({ navigation }: Props) {
         });
       }
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Giriş yapılamadı.';
+      const message = mapLoginError(e);
       setError(message);
-      Alert.alert('Hata', message);
+      themedAlert('Giriş yapılamadı', message);
     } finally {
       setLoading(false);
     }

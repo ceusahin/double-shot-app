@@ -1,19 +1,29 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Image, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Image,
+} from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card } from '../components';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import { getTeamRecipe, deleteTeamRecipe } from '../services/teamRecipes';
 import type { RecipesStackParamList } from '../navigation/RecipesStack';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RouteProp } from '@react-navigation/native';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Nav = StackNavigationProp<RecipesStackParamList, 'TeamRecipeDetail'>;
 type Route = RouteProp<RecipesStackParamList, 'TeamRecipeDetail'>;
 
 export function TeamRecipeDetailScreen() {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const route = useRoute<Route>();
   const navigation = useNavigation<Nav>();
   const { recipeId, teamId, canEdit } = route.params;
@@ -26,7 +36,7 @@ export function TeamRecipeDetailScreen() {
   });
 
   const handleDelete = () => {
-    Alert.alert('Tarifi sil', 'Bu tarifi silmek istediğinize emin misiniz?', [
+    themedAlert('Tarifi sil', 'Bu tarifi silmek istediğinize emin misiniz?', [
       { text: 'İptal', style: 'cancel' },
       {
         text: 'Sil',
@@ -38,7 +48,7 @@ export function TeamRecipeDetailScreen() {
             queryClient.invalidateQueries({ queryKey: ['team-recipe', recipeId] });
             navigation.goBack();
           } catch (e) {
-            Alert.alert('Hata', e instanceof Error ? e.message : 'Silinemedi.');
+            themedAlert('Hata', e instanceof Error ? e.message : 'Silinemedi.');
           }
         },
       },
@@ -54,7 +64,11 @@ export function TeamRecipeDetailScreen() {
   }
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.header}>
         <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={26} color={colors.accent} />
@@ -134,7 +148,7 @@ export function TeamRecipeDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   placeholder: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.md },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
   backBtn: {

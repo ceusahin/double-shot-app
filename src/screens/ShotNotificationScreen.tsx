@@ -1,5 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Animated } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Animated,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
 import { RouteProp, useRoute } from '@react-navigation/native';
@@ -10,13 +17,16 @@ import { getTeamMembersOnShift } from '../services/shifts';
 import { supabase } from '../services/supabase';
 import { sendExpoPush } from '../services/pushNotifications';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type RouteProps = RouteProp<TeamsStackParamList, 'ShotNotification'>;
 
 type Audience = 'on_shift' | 'all' | 'single_member';
 
 export function ShotNotificationScreen() {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const route = useRoute<RouteProps>();
   const { team } = route.params;
   const user = useAuthStore((s) => s.user);
@@ -81,19 +91,19 @@ export function ShotNotificationScreen() {
   const handleSend = async () => {
     const text = message.trim();
     if (!text) {
-      Alert.alert('Uyarı', 'Lütfen gönderilecek metni yazın.');
+      themedAlert('Uyarı', 'Lütfen gönderilecek metni yazın.');
       return;
     }
     if (!isManager) {
-      Alert.alert('Yetki yok', 'Shot bildirimi sadece ekip lideri veya yönetici tarafından gönderilebilir.');
+      themedAlert('Yetki yok', 'Shot bildirimi sadece ekip lideri veya yönetici tarafından gönderilebilir.');
       return;
     }
     if (targetUserIds.length === 0) {
       if (audience === 'single_member') {
-        Alert.alert('Uyarı', 'Lütfen bildirim gönderilecek ekip üyesini seçin.');
+        themedAlert('Uyarı', 'Lütfen bildirim gönderilecek ekip üyesini seçin.');
         return;
       }
-      Alert.alert('Uyarı', 'Seçili kriterlere uyan ekip üyesi bulunamadı.');
+      themedAlert('Uyarı', 'Seçili kriterlere uyan ekip üyesi bulunamadı.');
       return;
     }
     setSending(true);
@@ -109,7 +119,7 @@ export function ShotNotificationScreen() {
         new Set((tokens ?? []).map((t: any) => t.token as string).filter(Boolean))
       );
       if (uniqueTokens.length === 0) {
-        Alert.alert('Uyarı', 'Hedef kullanıcılar için kayıtlı bildirim tokenı bulunamadı.');
+        themedAlert('Uyarı', 'Hedef kullanıcılar için kayıtlı bildirim tokenı bulunamadı.');
         setSending(false);
         return;
       }
@@ -119,11 +129,11 @@ export function ShotNotificationScreen() {
           sendExpoPush(token, `${team.name} – Shot`, text)
         )
       );
-      Alert.alert('Gönderildi', 'Shot bildirimi ekibe iletildi.');
+      themedAlert('Gönderildi', 'Shot bildirimi ekibe iletildi.');
       setMessage('');
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Bildirim gönderilemedi.';
-      Alert.alert('Hata', msg);
+      themedAlert('Hata', msg);
     } finally {
       setSending(false);
     }
@@ -140,7 +150,7 @@ export function ShotNotificationScreen() {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
       showsVerticalScrollIndicator={false}
     >
       <Text style={styles.title}>
@@ -304,7 +314,7 @@ export function ShotNotificationScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   title: { ...typography.title, color: colors.textPrimary, marginBottom: 4 },
   titleAccent: { color: colors.accent },
   subtitle: {

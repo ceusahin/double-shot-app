@@ -7,7 +7,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   Pressable,
 } from 'react-native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -16,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Button, Input } from '../../components';
 import { colors, spacing, typography, fonts } from '../../utils/theme';
+import { themedAlert } from '../../utils/themedAlert';
 import { signUpWithEmail } from '../../services/auth';
 import { getMyRolesSummary } from '../../services/rbac';
 import type { AuthStackParamList } from '../../navigation/AuthStack';
@@ -71,7 +71,7 @@ export function SignUpScreen({ navigation }: Props) {
           }
         } else {
           setError('');
-          Alert.alert(
+          themedAlert(
             'E-postanızı onaylayın',
             'Kayıt başarılı. Giriş yapabilmek için e-posta adresinize gelen onay linkine tıklayın.',
             [{ text: 'Tamam', onPress: () => navigation.navigate('Login') }]
@@ -89,7 +89,7 @@ export function SignUpScreen({ navigation }: Props) {
           'Çok fazla deneme. Lütfen bir süre sonra tekrar deneyin veya Supabase Dashboard\'da e-posta onayını kapatın.';
       }
       setError(message);
-      Alert.alert('Hata', message);
+      themedAlert('Hata', message);
     } finally {
       setLoading(false);
     }

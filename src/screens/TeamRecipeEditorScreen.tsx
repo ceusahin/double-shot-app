@@ -5,7 +5,6 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Image,
@@ -17,6 +16,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, Button, Input } from '../components';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import {
   getTeamRecipe,
   createTeamRecipe,
@@ -26,11 +26,13 @@ import {
 import type { RecipesStackParamList } from '../navigation/RecipesStack';
 import type { StackNavigationProp } from '@react-navigation/stack';
 import type { RouteProp } from '@react-navigation/native';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Nav = StackNavigationProp<RecipesStackParamList, 'TeamRecipeEditor'>;
 type Route = RouteProp<RecipesStackParamList, 'TeamRecipeEditor'>;
 
 export function TeamRecipeEditorScreen() {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const route = useRoute<Route>();
   const navigation = useNavigation<Nav>();
   const { teamId, categoryId, recipeId } = route.params;
@@ -100,7 +102,7 @@ export function TeamRecipeEditorScreen() {
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('İzin', 'Fotoğraf seçmek için galeri izni gerekir.');
+      themedAlert('İzin', 'Fotoğraf seçmek için galeri izni gerekir.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -121,7 +123,7 @@ export function TeamRecipeEditorScreen() {
   const handleSave = async () => {
     const trimmedName = name.trim();
     if (!trimmedName) {
-      Alert.alert('Eksik', 'Tarif adı girin.');
+      themedAlert('Eksik', 'Tarif adı girin.');
       return;
     }
     const cleanIngredients = ingredients.map((s) => s.trim()).filter(Boolean);
@@ -140,7 +142,7 @@ export function TeamRecipeEditorScreen() {
             const url = await uploadRecipeImage(teamId, recipeId, imageUri, imageBase64);
             await updateTeamRecipe(recipeId, { image_url: url });
           } catch (imgErr) {
-            Alert.alert('Fotoğraf yüklenemedi', imgErr instanceof Error ? imgErr.message : 'Tarif kaydedildi; fotoğrafı düzenleyerek tekrar deneyebilirsiniz.');
+            themedAlert('Fotoğraf yüklenemedi', imgErr instanceof Error ? imgErr.message : 'Tarif kaydedildi; fotoğrafı düzenleyerek tekrar deneyebilirsiniz.');
           }
         }
         queryClient.invalidateQueries({ queryKey: ['team-recipe', recipeId] });
@@ -157,13 +159,13 @@ export function TeamRecipeEditorScreen() {
             const url = await uploadRecipeImage(teamId, recipe.id, imageUri, imageBase64);
             await updateTeamRecipe(recipe.id, { image_url: url });
           } catch (imgErr) {
-            Alert.alert(
+            themedAlert(
               'Tarif kaydedildi',
               imgErr instanceof Error ? imgErr.message : 'Fotoğraf yüklenemedi. Tarifi düzenleyip daha küçük bir fotoğraf ekleyebilirsiniz.'
             );
           }
         } else if (imageUri && !imageBase64) {
-          Alert.alert(
+          themedAlert(
             'Tarif kaydedildi',
             'Fotoğraf boyutu büyük olduğu için yüklenemedi. Tarifi düzenleyip tekrar fotoğraf ekleyebilirsiniz (daha küçük bir fotoğraf seçin).'
           );
@@ -173,7 +175,7 @@ export function TeamRecipeEditorScreen() {
       queryClient.invalidateQueries({ queryKey: ['team-recipes', teamId, categoryId] });
       navigation.goBack();
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Kaydedilemedi.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Kaydedilemedi.');
     } finally {
       setSaving(false);
     }
@@ -198,7 +200,7 @@ export function TeamRecipeEditorScreen() {
       <ScrollView
         ref={scrollRef}
         style={styles.container}
-        contentContainerStyle={[styles.content, { paddingBottom: spacing.xxl + keyboardHeight }]}
+        contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad + keyboardHeight }]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
         showsVerticalScrollIndicator={true}
@@ -298,7 +300,7 @@ export function TeamRecipeEditorScreen() {
 const styles = StyleSheet.create({
   kav: { flex: 1, backgroundColor: colors.bgDark },
   container: { flex: 1 },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
   backBtn: {
     width: 44,

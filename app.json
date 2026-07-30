@@ -5,7 +5,7 @@
     "scheme": "ekibio",
     "version": "1.0.0",
     "orientation": "default",
-    "icon": "./public/logo.png",
+    "icon": "./public/app-icon.png",
     "userInterfaceStyle": "light",
     "backgroundColor": "#1A1A1A",
     "splash": {
@@ -20,7 +20,7 @@
       "package": "com.baesdigital.ekibio",
       "adaptiveIcon": {
         "backgroundColor": "#1A1A1A",
-        "foregroundImage": "./public/logo.png"
+        "foregroundImage": "./public/app-icon.png"
       },
       "predictiveBackGestureEnabled": false,
       "permissions": [

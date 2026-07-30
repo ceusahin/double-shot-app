@@ -1,13 +1,26 @@
 import React, { useMemo } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
+import { useQuery } from '@tanstack/react-query';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AuthScreenRoot } from './auth/AuthChrome';
 import { colors, spacing, typography, borderRadius, fonts, shadow } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
+import { useAuthStore } from '../store/authStore';
+import { canUserCreateTeam, getQuotaBalance } from '../services/platformAdmin';
+import type { QuotaGrantKind } from '../types';
+import { countTeamsWhereOwner } from '../services/teams';
 import {
   getTeamPlan,
   EXTRA_SEAT_MONTHLY_TRY,
@@ -20,10 +33,23 @@ import {
 type Nav = StackNavigationProp<TeamsStackParamList, 'CreateTeamSummary'>;
 type Route = RouteProp<TeamsStackParamList, 'CreateTeamSummary'>;
 
+function billingMonthsToQuotaKind(months: number): QuotaGrantKind {
+  if (months === 1) return 'months_1';
+  if (months === 3) return 'months_3';
+  return 'months_6';
+}
+
 export function TeamSubscriptionSummaryScreen() {
   const navigation = useNavigation<Nav>();
   const route = useRoute<Route>();
   const insets = useSafeAreaInsets();
+  const tabScrollBottomPad = useMainTabScrollPadding();
+  const user = useAuthStore((s) => s.user);
+  const { data: ownedTeamCount = 0 } = useQuery({
+    queryKey: ['owned-teams-count', user?.id],
+    queryFn: () => countTeamsWhereOwner(user!.id),
+    enabled: !!user?.id,
+  });
   const { planId, billingMonths } = route.params;
 
   const plan = useMemo(() => getTeamPlan(planId as TeamPlanId), [planId]);
@@ -43,13 +69,28 @@ export function TeamSubscriptionSummaryScreen() {
   }
 
   const goCreateTeam = () => {
-    navigation.navigate('CreateTeam', { planId: plan.id, billingMonths });
+    if (!canUserCreateTeam(user, ownedTeamCount)) {
+      themedAlert(
+        'Takım oluşturma',
+        'Kullanılabilir kota hakkınız yok. Süper yöneticinizden süre kotası vermesini isteyin.'
+      );
+      return;
+    }
+    const qk = billingMonthsToQuotaKind(billingMonths);
+    if (getQuotaBalance(user, qk) < 1) {
+      themedAlert(
+        'Kota yok',
+        `Bu paket süresi (${billingMonths === 1 ? '1 ay' : billingMonths === 3 ? '3 ay' : '6 ay'}) için tanımlı kota hakkınız yok. Süper yöneticiden ilgili süreyle kota isteyin.`
+      );
+      return;
+    }
+    navigation.navigate('CreateTeam', { billingMonths });
   };
 
   return (
     <AuthScreenRoot>
       <ScrollView
-        contentContainerStyle={[styles.scroll, { paddingBottom: insets.bottom + spacing.xxl }]}
+        contentContainerStyle={[styles.scroll, { paddingBottom: tabScrollBottomPad }]}
         showsVerticalScrollIndicator={false}
       >
         <Text style={styles.kicker}>Sipariş özeti</Text>

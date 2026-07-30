@@ -1,17 +1,20 @@
 import React from 'react';
-import { Easing } from 'react-native';
+import { Easing, Pressable, StyleSheet } from 'react-native';
 import { createStackNavigator, CardStyleInterpolators } from '@react-navigation/stack';
+import type { NavigatorScreenParams } from '@react-navigation/native';
 import { NotificationModalProvider } from '../context/NotificationModalContext';
-import { MainTabs } from './MainTabs';
+import { MainTabs, type MainTabParamList } from './MainTabs';
+import { AppHeaderTitle } from '../components/AppHeaderTitle';
+import { HeaderRightWithNotif } from '../components/HeaderRightWithNotif';
 import { ProfileScreen } from '../screens/ProfileScreen';
 import { EquipmentGuideScreen } from '../screens/EquipmentGuideScreen';
 import { JoinRequestsScreen } from '../screens/JoinRequestsScreen';
 import { JoinRequestProfileScreen } from '../screens/JoinRequestProfileScreen';
-import { colors, typography, TRANSITION_DURATION } from '../utils/theme';
+import { colors, spacing, typography, TRANSITION_DURATION } from '../utils/theme';
 import type { TeamJoinRequest } from '../types';
 
 export type MainStackParamList = {
-  MainTabs: undefined;
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   Profile: undefined;
   Equipment: undefined;
   JoinRequests: { teamId?: string } | undefined;
@@ -35,22 +38,48 @@ export function MainStack() {
   return (
     <NotificationModalProvider>
     <Stack.Navigator
-      screenOptions={({ route }) => ({
-        headerShown: route.name === 'MainTabs' ? false : true,
-        headerTitleAlign: 'left',
-        cardStyle: { backgroundColor: colors.bgDark },
-        headerStyle: { backgroundColor: colors.bgDark },
-        headerTitleStyle: { ...typography.subtitle, color: colors.textPrimary },
-        headerBackTitleVisible: false,
-        headerBackTitle: '',
-        headerTitleContainerStyle: route.name === 'MainTabs' ? undefined : { left: 0 },
-        headerTintColor: colors.textPrimary,
-        headerShadowVisible: false,
-        cardStyleInterpolator:
-          route.name === 'MainTabs' ? undefined : CardStyleInterpolators.forVerticalIOS,
-        transitionSpec: route.name === 'MainTabs' ? undefined : transitionSpec,
-        gestureEnabled: true,
-      })}
+      screenOptions={({ route, navigation }) => {
+        const common = {
+          headerTitleAlign: 'left' as const,
+          cardStyle: { backgroundColor: colors.bgDark },
+          headerStyle: { backgroundColor: colors.bgDark },
+          headerTitleStyle: { ...typography.subtitle, color: colors.textPrimary },
+          headerBackTitleVisible: false,
+          headerBackTitle: '',
+          headerTintColor: colors.textPrimary,
+          headerShadowVisible: false,
+          gestureEnabled: true,
+        };
+        if (route.name === 'MainTabs') {
+          return {
+            ...common,
+            headerShown: true,
+            headerTitle: () => null,
+            headerTitleContainerStyle: { left: 0, right: 0 },
+            headerLeft: () => (
+              <Pressable
+                onPress={() => navigation.navigate('MainTabs', { screen: 'Home' })}
+                style={mainTabsHeaderStyles.brand}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Ana sayfaya git"
+              >
+                <AppHeaderTitle />
+              </Pressable>
+            ),
+            headerRight: () => <HeaderRightWithNotif />,
+            cardStyleInterpolator: undefined,
+            transitionSpec: undefined,
+          };
+        }
+        return {
+          ...common,
+          headerShown: true,
+          headerTitleContainerStyle: { left: 0 },
+          cardStyleInterpolator: CardStyleInterpolators.forVerticalIOS,
+          transitionSpec,
+        };
+      }}
     >
       <Stack.Screen name="MainTabs" component={MainTabs} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profil' }} />
@@ -61,3 +90,10 @@ export function MainStack() {
     </NotificationModalProvider>
   );
 }
+
+const mainTabsHeaderStyles = StyleSheet.create({
+  brand: {
+    marginLeft: spacing.md,
+    marginTop: spacing.md,
+  },
+});

@@ -6,14 +6,17 @@ import {
   ScrollView,
   Pressable,
   Modal,
-  Alert,
   Image,
   ActivityIndicator,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, TabBar, Input, Button } from '../components';
-import { colors, spacing, typography, fonts, borderRadius } from '../utils/theme';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
+import { colors, spacing, typography, fonts, borderRadius, shadow } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import { RECIPE_CATEGORIES } from '../data/recipes';
 import { getMyTeams } from '../services/teams';
 import {
@@ -49,6 +52,8 @@ export function RecipesScreen() {
   const navigation = useNavigation<Nav>();
   const queryClient = useQueryClient();
   const userId = useAuthStore((s) => s.user?.id);
+  const insets = useSafeAreaInsets();
+  const tabScrollBottomPad = useMainTabScrollPadding();
 
   const [activeTab, setActiveTab] = useState<RecipeTabKey>('global');
   const [globalSelectedKey, setGlobalSelectedKey] = useState(RECIPE_CATEGORIES[0]?.key ?? '');
@@ -103,14 +108,14 @@ export function RecipesScreen() {
       setAddCategoryModal(false);
       setNewCategoryName('');
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Kategori eklenemedi.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Kategori eklenemedi.');
     } finally {
       setCategorySaving(false);
     }
   };
 
   const handleDeleteCategory = (categoryId: string, categoryName: string) => {
-    Alert.alert('Kategoriyi sil', `"${categoryName}" ve içindeki tüm tarifler silinecek. Emin misiniz?`, [
+    themedAlert('Kategoriyi sil', `"${categoryName}" ve içindeki tüm tarifler silinecek. Emin misiniz?`, [
       { text: 'İptal', style: 'cancel' },
       {
         text: 'Sil',
@@ -122,7 +127,7 @@ export function RecipesScreen() {
             queryClient.invalidateQueries({ queryKey: ['team-recipe-categories', team.id] });
             queryClient.invalidateQueries({ queryKey: ['team-recipes', team.id] });
           } catch (e) {
-            Alert.alert('Hata', e instanceof Error ? e.message : 'Silinemedi.');
+            themedAlert('Hata', e instanceof Error ? e.message : 'Silinemedi.');
           }
         },
       },
@@ -137,7 +142,7 @@ export function RecipesScreen() {
       queryClient.invalidateQueries({ queryKey: ['team-recipe-categories', team?.id] });
       setEditCategoryModal(null);
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Kategori güncellenemedi.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Kategori güncellenemedi.');
     } finally {
       setCategorySaving(false);
     }
@@ -147,16 +152,41 @@ export function RecipesScreen() {
   const filteredGlobalItems = selectedGlobalCategory?.items ?? [];
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-      <View style={styles.hero}>
-        <Text style={styles.title}>Tarifler</Text>
-        <Text style={styles.heroSubtitle}>Kahve, tatlı ve kokteyl rehberi</Text>
-      </View>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
+      <LinearGradient
+        colors={['rgba(212, 175, 55, 0.2)', 'rgba(10, 10, 10, 0.35)', colors.bgDark]}
+        locations={[0, 0.5, 1]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 0.85, y: 1 }}
+        style={[
+          styles.heroGradient,
+          {
+            marginHorizontal: -spacing.md,
+            paddingTop: insets.top + spacing.md,
+            paddingBottom: spacing.xl,
+            paddingHorizontal: spacing.md,
+          },
+        ]}
+      >
+        <View style={styles.heroIconBadge}>
+          <Ionicons name="cafe-outline" size={22} color={colors.accent} />
+        </View>
+        <Text style={styles.heroEyebrow}>Global rehber</Text>
+        <Text style={styles.heroTitle}>Tarifler</Text>
+        <Text style={styles.heroSubtitle}>Kahve, tatlı ve alkolsüz kokteyl koleksiyonu</Text>
+      </LinearGradient>
+
       <TabBar tabs={RECIPE_TABS} activeKey={activeTab} onChange={(k) => setActiveTab(k as RecipeTabKey)} variant="primary" />
 
       {activeTab === 'global' && (
         <>
-          <Text style={styles.subtitle}>Dünyanın dört bir yanından güncel, alkolsüz ve standartlara uygun tarifler.</Text>
+          <Text style={styles.intro}>
+            Dünyanın dört bir yanından güncel, alkolsüz ve standartlara uygun tarifler — hızlıca göz atın.
+          </Text>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -171,6 +201,15 @@ export function RecipesScreen() {
                   onPress={() => setGlobalSelectedKey(opt.key)}
                   style={({ pressed }) => [styles.chip, isSelected && styles.chipSelected, pressed && styles.chipPressed]}
                 >
+                  {isSelected ? (
+                    <LinearGradient
+                      colors={['rgba(212, 175, 55, 0.35)', 'rgba(212, 175, 55, 0.12)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    />
+                  ) : null}
                   <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>{opt.label}</Text>
                 </Pressable>
               );
@@ -178,32 +217,44 @@ export function RecipesScreen() {
           </ScrollView>
           {selectedGlobalCategory ? (
             <View key={selectedGlobalCategory.key} style={styles.section}>
-              <View style={styles.sectionTitleRow}>
-                <View style={styles.sectionTitleAccent} />
-                <Text style={styles.sectionTitle}>{selectedGlobalCategory.title}</Text>
+              <View style={styles.sectionHeader}>
+                <View style={styles.sectionIconBox}>
+                  <Ionicons name="library-outline" size={18} color={colors.accent} />
+                </View>
+                <View style={styles.sectionHeaderText}>
+                  <Text style={styles.sectionEyebrow}>Kategori</Text>
+                  <Text style={styles.sectionTitleLarge}>{selectedGlobalCategory.title}</Text>
+                </View>
               </View>
               {filteredGlobalItems.length === 0 ? (
                 <View style={styles.emptyInline}>
-                  <Text style={styles.noRecipesText}>Aramanıza uygun tarif bulunamadı.</Text>
+                  <Text style={styles.noRecipesText}>Bu kategoride tarif bulunamadı.</Text>
                 </View>
-              ) : filteredGlobalItems.map((item) => (
-                <Pressable
-                  key={item.id}
-                  style={({ pressed }) => [styles.recipeCard, pressed && styles.recipeCardPressed]}
-                  onPress={() => navigation.navigate('RecipeDetail', { id: item.id })}
-                >
-                  <View style={styles.recipeCardIconWrap}>
-                    <Ionicons name="cafe-outline" size={24} color={colors.accent} />
-                  </View>
-                  <View style={styles.recipeCardBody}>
-                    <Text style={styles.recipeCardTitle} numberOfLines={1}>{item.name.toUpperCase()}</Text>
-                    <View style={styles.recipeCardPill}>
-                      <Text style={styles.recipeCardPillText}>{item.type}</Text>
+              ) : (
+                filteredGlobalItems.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    style={({ pressed }) => [styles.recipeShell, pressed && styles.recipeCardPressed]}
+                    onPress={() => navigation.navigate('RecipeDetail', { id: item.id })}
+                  >
+                    <View style={styles.recipeGoldCap} />
+                    <View style={styles.recipeCardInner}>
+                      <View style={styles.recipeCardIconWrap}>
+                        <Ionicons name="cafe-outline" size={22} color={colors.accent} />
+                      </View>
+                      <View style={styles.recipeCardBody}>
+                        <Text style={styles.recipeCardTitle} numberOfLines={2}>
+                          {item.name}
+                        </Text>
+                        <View style={styles.recipeCardPill}>
+                          <Text style={styles.recipeCardPillText}>{item.type}</Text>
+                        </View>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                     </View>
-                  </View>
-                  <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
-                </Pressable>
-              ))}
+                  </Pressable>
+                ))
+              )}
             </View>
           ) : null}
         </>
@@ -213,29 +264,49 @@ export function RecipesScreen() {
         <>
           {teams.length === 0 ? (
             <View style={styles.emptyStateCard}>
+              <LinearGradient
+                colors={['rgba(212, 175, 55, 0.12)', 'transparent']}
+                style={StyleSheet.absoluteFill}
+                pointerEvents="none"
+              />
               <View style={styles.emptyStateIconWrap}>
-                <Ionicons name="restaurant-outline" size={40} color={colors.accent} />
+                <Ionicons name="people-outline" size={32} color={colors.accent} />
               </View>
-              <Text style={styles.emptyStateTitle}>Ekip tarifleri</Text>
-              <Text style={styles.emptyStateText}>Bir ekibe katıldığınızda burada ekip tariflerini görebilirsiniz. Ekip lideri Yönetim sekmesinden kategoriler ve tarifler ekleyebilir.</Text>
+              <Text style={styles.emptyStateEyebrow}>Ekip içeriği</Text>
+              <Text style={styles.emptyStateTitle}>Henüz ekip yok</Text>
+              <Text style={styles.emptyStateText}>
+                Bir ekibe katıldığınızda ekip tarifleri burada listelenir. Yöneticiler kategori ve tarif ekleyebilir.
+              </Text>
             </View>
           ) : (
             <>
               {teams.length > 1 && (
                 <View style={styles.teamPickerRow}>
-                  <Text style={styles.teamPickerLabel}>Ekip</Text>
+                  <Text style={styles.teamPickerLabel}>Ekip seçin</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.teamChips}>
-                    {teams.map((t) => (
-                      <Pressable
-                        key={t.id}
-                        style={[styles.teamChip, t.id === selectedTeamId && styles.teamChipSelected]}
-                        onPress={() => setSelectedTeamId(t.id)}
-                      >
-                        <Text style={[styles.teamChipText, t.id === selectedTeamId && styles.teamChipTextSelected]} numberOfLines={1}>
-                          {t.name}
-                        </Text>
-                      </Pressable>
-                    ))}
+                    {teams.map((t) => {
+                      const sel = t.id === selectedTeamId;
+                      return (
+                        <Pressable
+                          key={t.id}
+                          style={[styles.teamChip, sel && styles.teamChipSelected]}
+                          onPress={() => setSelectedTeamId(t.id)}
+                        >
+                          {sel ? (
+                            <LinearGradient
+                              colors={['rgba(212, 175, 55, 0.28)', 'rgba(212, 175, 55, 0.08)']}
+                              start={{ x: 0, y: 0 }}
+                              end={{ x: 1, y: 1 }}
+                              style={StyleSheet.absoluteFill}
+                              pointerEvents="none"
+                            />
+                          ) : null}
+                          <Text style={[styles.teamChipText, sel && styles.teamChipTextSelected]} numberOfLines={1}>
+                            {t.name}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
                   </ScrollView>
                 </View>
               )}
@@ -256,28 +327,38 @@ export function RecipesScreen() {
                 /* Tarifler: sadece listeleme, düzenleme yok */
                 teamCategories.length === 0 ? (
                   <View style={styles.emptyStateCard}>
+                    <LinearGradient
+                      colors={['rgba(212, 175, 55, 0.12)', 'transparent']}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    />
                     <View style={styles.emptyStateIconWrap}>
-                      <Ionicons name="book-outline" size={40} color={colors.accent} />
+                      <Ionicons name="book-outline" size={32} color={colors.accent} />
                     </View>
-                    <Text style={styles.emptyStateTitle}>Henüz tarif yok</Text>
-                    <Text style={styles.emptyStateText}>Bu ekip için henüz tarif kategorisi eklenmemiş. Ekip lideriniz Yönetim sekmesinden ekleyebilir.</Text>
+                    <Text style={styles.emptyStateEyebrow}>Ekip tarifleri</Text>
+                    <Text style={styles.emptyStateTitle}>Kategori bekleniyor</Text>
+                    <Text style={styles.emptyStateText}>
+                      Bu ekip için henüz kategori oluşturulmamış. Yönetici, Yönetim sekmesinden kategori ekleyebilir.
+                    </Text>
                   </View>
                 ) : (
                   teamCategories.map((category) => {
                     const recipes = teamRecipesByCategory[category.id] ?? [];
                     return (
                       <View key={category.id} style={styles.teamCategorySection}>
-                        <View style={styles.sectionTitleRow}>
-                          <View style={styles.sectionTitleAccent} />
+                        <View style={styles.teamSectionHeader}>
+                          <View style={styles.sectionIconBox}>
+                            <Ionicons name="folder-open-outline" size={18} color={colors.accent} />
+                          </View>
                           <Text style={styles.teamCategoryTitle}>{category.name}</Text>
                         </View>
                         {recipes.length === 0 ? (
-                          <Text style={styles.noRecipesText}>Henüz tarif yok.</Text>
+                          <Text style={styles.noRecipesText}>Bu kategoride henüz tarif yok.</Text>
                         ) : (
                           recipes.map((recipe) => (
                             <Pressable
                               key={recipe.id}
-                              style={({ pressed }) => [styles.teamRecipeCard, pressed && styles.recipeCardPressed]}
+                              style={({ pressed }) => [styles.teamRecipeShell, pressed && styles.recipeCardPressed]}
                               onPress={() =>
                                 navigation.navigate('TeamRecipeDetail', {
                                   recipeId: recipe.id,
@@ -286,17 +367,22 @@ export function RecipesScreen() {
                                 })
                               }
                             >
-                              {recipe.image_url ? (
-                                <Image source={{ uri: recipe.image_url }} style={styles.teamRecipeImage} resizeMode="cover" />
-                              ) : (
-                                <View style={styles.teamRecipeImagePlaceholder}>
-                                  <Ionicons name="restaurant-outline" size={24} color={colors.accent} />
+                              <View style={styles.recipeGoldCap} />
+                              <View style={styles.teamRecipeRow}>
+                                {recipe.image_url ? (
+                                  <Image source={{ uri: recipe.image_url }} style={styles.teamRecipeImage} resizeMode="cover" />
+                                ) : (
+                                  <View style={styles.teamRecipeImagePlaceholder}>
+                                    <Ionicons name="restaurant-outline" size={22} color={colors.accent} />
+                                  </View>
+                                )}
+                                <View style={styles.teamRecipeBody}>
+                                  <Text style={styles.teamRecipeTitle} numberOfLines={2}>
+                                    {recipe.name}
+                                  </Text>
                                 </View>
-                              )}
-                              <View style={styles.teamRecipeBody}>
-                                <Text style={styles.teamRecipeTitle} numberOfLines={1}>{recipe.name.toUpperCase()}</Text>
+                                <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                               </View>
-                              <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
                             </Pressable>
                           ))
                         )}
@@ -308,20 +394,41 @@ export function RecipesScreen() {
                 /* Yönetim: sadece ekip lideri görür – kategori ekle, düzenle/sil, tarif ekle */
                 <>
                   <Pressable
-                    style={[styles.addCategoryBtn, addCategoryModal && styles.addCategoryBtnPressed]}
+                    style={({ pressed }) => [styles.addCategoryBtn, pressed && styles.addCategoryBtnPressed]}
                     onPress={() => setAddCategoryModal(true)}
                   >
-                    <Ionicons name="add-circle-outline" size={22} color={colors.accent} />
-                    <Text style={styles.addCategoryBtnText}>Kategori ekle (Mutfak, Bar vb.)</Text>
+                    <LinearGradient
+                      colors={['rgba(212, 175, 55, 0.15)', 'rgba(22, 22, 24, 0.95)']}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={StyleSheet.absoluteFill}
+                      pointerEvents="none"
+                    />
+                    <View style={styles.addCategoryIconWrap}>
+                      <Ionicons name="add" size={22} color={colors.accent} />
+                    </View>
+                    <View style={styles.addCategoryTextCol}>
+                      <Text style={styles.addCategoryTitle}>Yeni kategori</Text>
+                      <Text style={styles.addCategorySub}>Mutfak, bar veya servis alanı</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                   </Pressable>
 
                   {teamCategories.length === 0 ? (
                     <View style={styles.emptyStateCard}>
+                      <LinearGradient
+                        colors={['rgba(212, 175, 55, 0.12)', 'transparent']}
+                        style={StyleSheet.absoluteFill}
+                        pointerEvents="none"
+                      />
                       <View style={styles.emptyStateIconWrap}>
-                        <Ionicons name="folder-open-outline" size={40} color={colors.accent} />
+                        <Ionicons name="folder-open-outline" size={32} color={colors.accent} />
                       </View>
-                      <Text style={styles.emptyStateTitle}>Henüz kategori yok</Text>
-                      <Text style={styles.emptyStateText}>Yukarıdaki butonla Mutfak, Bar gibi çalışma alanları oluşturun, sonra kategoriye tarif ekleyin.</Text>
+                      <Text style={styles.emptyStateEyebrow}>Yönetim</Text>
+                      <Text style={styles.emptyStateTitle}>Önce kategori oluşturun</Text>
+                      <Text style={styles.emptyStateText}>
+                        Mutfak, bar gibi alanlar ekleyin; ardından her alana tarif tanımlayın.
+                      </Text>
                     </View>
                   ) : (
                     teamCategories.map((category) => {
@@ -329,9 +436,11 @@ export function RecipesScreen() {
                       return (
                         <View key={category.id} style={styles.teamCategorySection}>
                           <View style={styles.teamCategoryHeader}>
-                            <View style={styles.sectionTitleRow}>
-                              <View style={styles.sectionTitleAccent} />
-                              <Text style={styles.teamCategoryTitle}>{category.name}</Text>
+                            <View style={styles.teamSectionHeaderCompact}>
+                              <View style={styles.sectionIconBox}>
+                                <Ionicons name="pricetag-outline" size={16} color={colors.accent} />
+                              </View>
+                              <Text style={styles.teamCategoryTitleInline}>{category.name}</Text>
                             </View>
                             <View style={styles.teamCategoryActions}>
                               <Pressable
@@ -363,12 +472,12 @@ export function RecipesScreen() {
                             </View>
                           </View>
                           {recipes.length === 0 ? (
-                            <Text style={styles.noRecipesText}>Henüz tarif yok.</Text>
+                            <Text style={styles.noRecipesText}>Bu kategoride henüz tarif yok.</Text>
                           ) : (
                             recipes.map((recipe) => (
                               <Pressable
                                 key={recipe.id}
-                                style={({ pressed }) => [styles.teamRecipeCard, pressed && styles.recipeCardPressed]}
+                                style={({ pressed }) => [styles.teamRecipeShell, pressed && styles.recipeCardPressed]}
                                 onPress={() =>
                                   navigation.navigate('TeamRecipeDetail', {
                                     recipeId: recipe.id,
@@ -377,17 +486,22 @@ export function RecipesScreen() {
                                   })
                                 }
                               >
-                                {recipe.image_url ? (
-                                  <Image source={{ uri: recipe.image_url }} style={styles.teamRecipeImage} resizeMode="cover" />
-                                ) : (
-                                  <View style={styles.teamRecipeImagePlaceholder}>
-                                    <Ionicons name="restaurant-outline" size={24} color={colors.accent} />
+                                <View style={styles.recipeGoldCap} />
+                                <View style={styles.teamRecipeRow}>
+                                  {recipe.image_url ? (
+                                    <Image source={{ uri: recipe.image_url }} style={styles.teamRecipeImage} resizeMode="cover" />
+                                  ) : (
+                                    <View style={styles.teamRecipeImagePlaceholder}>
+                                      <Ionicons name="restaurant-outline" size={22} color={colors.accent} />
+                                    </View>
+                                  )}
+                                  <View style={styles.teamRecipeBody}>
+                                    <Text style={styles.teamRecipeTitle} numberOfLines={2}>
+                                      {recipe.name}
+                                    </Text>
                                   </View>
-                                )}
-                                <View style={styles.teamRecipeBody}>
-                                  <Text style={styles.teamRecipeTitle} numberOfLines={1}>{recipe.name.toUpperCase()}</Text>
+                                  <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
                                 </View>
-                                <Ionicons name="chevron-forward" size={20} color={colors.textSecondary} />
                               </Pressable>
                             ))
                           )}
@@ -454,42 +568,121 @@ export function RecipesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
-  hero: { marginBottom: spacing.md },
-  title: { ...typography.title, marginBottom: spacing.xs, color: colors.textPrimary },
-  heroSubtitle: { fontSize: 14, color: colors.textMuted, letterSpacing: 0.3 },
-  subtitle: { fontSize: 14, color: colors.textSecondary, marginBottom: spacing.lg },
+  content: { padding: spacing.md, paddingBottom: 0 },
+  heroGradient: {
+    borderBottomLeftRadius: borderRadius.lg,
+    borderBottomRightRadius: borderRadius.lg,
+    marginBottom: spacing.lg,
+    overflow: 'hidden',
+  },
+  heroIconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.28)',
+  },
+  heroEyebrow: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: spacing.xs,
+  },
+  heroTitle: {
+    fontSize: 32,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+    marginBottom: spacing.sm,
+  },
+  heroSubtitle: {
+    ...typography.small,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    maxWidth: '92%',
+  },
+  intro: {
+    ...typography.small,
+    color: colors.textMuted,
+    lineHeight: 22,
+    marginBottom: spacing.lg,
+  },
   chipScroll: { marginBottom: spacing.lg },
   chipRow: { flexDirection: 'row', gap: spacing.sm, paddingVertical: spacing.xs },
   chip: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 11,
     borderRadius: borderRadius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
+    minHeight: 42,
+    justifyContent: 'center',
   },
-  chipSelected: { backgroundColor: colors.accent, borderColor: colors.accent },
-  chipPressed: { opacity: 0.85 },
-  chipText: { ...typography.caption, color: colors.textSecondary },
-  chipTextSelected: { color: colors.bgDark, fontFamily: fonts.semibold },
+  chipSelected: {
+    borderColor: 'rgba(212, 175, 55, 0.55)',
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+  },
+  chipPressed: { opacity: 0.88 },
+  chipText: { ...typography.small, color: colors.textSecondary, zIndex: 1 },
+  chipTextSelected: { color: colors.textPrimary, fontFamily: fonts.semibold },
   section: { marginBottom: spacing.xl },
-  sectionTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
-  sectionTitleAccent: { width: 4, height: 20, borderRadius: 2, backgroundColor: colors.accent, marginRight: spacing.sm },
-  sectionTitle: {
-    ...typography.subtitle,
-    fontFamily: fonts.semibold,
-    color: colors.accent,
-  },
-  recipeCard: {
+  sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: spacing.md,
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  sectionIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.22)',
+  },
+  sectionHeaderText: { flex: 1, minWidth: 0 },
+  sectionEyebrow: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: 2,
+  },
+  sectionTitleLarge: {
+    fontSize: 20,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+  },
+  recipeShell: {
     marginBottom: spacing.sm,
-    backgroundColor: colors.glassBg,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: colors.glassBorder,
+    backgroundColor: colors.glassBg,
+    overflow: 'hidden',
+    ...shadow.md,
+  },
+  recipeGoldCap: {
+    height: 3,
+    backgroundColor: colors.accent,
+    opacity: 0.85,
+  },
+  recipeCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
     gap: spacing.md,
   },
   recipeCardPressed: { opacity: 0.92 },
@@ -497,14 +690,30 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.accent + '18',
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.22)',
   },
   recipeCardBody: { flex: 1, minWidth: 0 },
-  recipeCardTitle: { fontSize: 16, fontFamily: fonts.semibold, color: colors.textPrimary, letterSpacing: 0.5 },
-  recipeCardPill: { alignSelf: 'flex-start', marginTop: spacing.xs, paddingHorizontal: 8, paddingVertical: 4, backgroundColor: colors.surface, borderRadius: borderRadius.sm },
-  recipeCardPillText: { fontSize: 11, fontFamily: fonts.medium, color: colors.textSecondary },
+  recipeCardTitle: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    lineHeight: 22,
+  },
+  recipeCardPill: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.xs,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: borderRadius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  recipeCardPillText: { fontSize: 11, fontFamily: fonts.medium, color: colors.textMuted },
 
   emptyStateCard: {
     padding: spacing.xl,
@@ -512,62 +721,129 @@ const styles = StyleSheet.create({
     backgroundColor: colors.glassBg,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
-    borderColor: colors.glassBorder,
+    borderColor: 'rgba(212, 175, 55, 0.18)',
     alignItems: 'center',
+    overflow: 'hidden',
+    ...shadow.md,
   },
   emptyStateIconWrap: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: colors.accent + '18',
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.25)',
   },
-  emptyStateTitle: { fontSize: 17, fontFamily: fonts.semibold, color: colors.textPrimary, marginBottom: spacing.sm },
+  emptyStateEyebrow: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.9,
+    marginBottom: spacing.xs,
+  },
+  emptyStateTitle: { fontSize: 18, fontFamily: fonts.bold, color: colors.textPrimary, marginBottom: spacing.sm },
   emptyStateText: { fontSize: 14, color: colors.textSecondary, textAlign: 'center', lineHeight: 22 },
 
   teamPickerRow: { marginBottom: spacing.lg },
-  teamPickerLabel: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.xs, textTransform: 'uppercase', letterSpacing: 0.5 },
+  teamPickerLabel: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
   teamChips: { flexDirection: 'row', gap: spacing.sm },
   teamChip: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: 10,
     borderRadius: borderRadius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
+    justifyContent: 'center',
   },
-  teamChipSelected: { borderColor: colors.accent, backgroundColor: colors.accent + '18' },
-  teamChipText: { fontSize: 14, color: colors.textSecondary },
-  teamChipTextSelected: { color: colors.accent, fontFamily: fonts.semibold },
+  teamChipSelected: { borderColor: 'rgba(212, 175, 55, 0.5)' },
+  teamChipText: { fontSize: 14, color: colors.textSecondary, zIndex: 1 },
+  teamChipTextSelected: { color: colors.textPrimary, fontFamily: fonts.semibold },
 
   loadingWrap: { padding: spacing.xl, alignItems: 'center' },
   addCategoryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.md,
     marginBottom: spacing.lg,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: colors.accent + '50',
-    backgroundColor: colors.accent + '0C',
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+    ...shadow.md,
   },
-  addCategoryBtnPressed: { opacity: 0.9 },
-  addCategoryBtnText: { fontSize: 14, fontFamily: fonts.medium, color: colors.accent },
+  addCategoryBtnPressed: { opacity: 0.92 },
+  addCategoryIconWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(212, 175, 55, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.3)',
+  },
+  addCategoryTextCol: { flex: 1, minWidth: 0 },
+  addCategoryTitle: { fontSize: 16, fontFamily: fonts.bold, color: colors.textPrimary, marginBottom: 2 },
+  addCategorySub: { fontSize: 13, color: colors.textMuted },
 
   teamCategorySection: { marginBottom: spacing.xl },
-  teamCategoryHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
-  teamCategoryTitle: { ...typography.subtitle, fontFamily: fonts.semibold, color: colors.accent },
-  teamCategoryActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  teamCategoryHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  teamSectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    marginBottom: spacing.md,
+  },
+  teamSectionHeaderCompact: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+    minWidth: 0,
+    marginRight: spacing.sm,
+  },
+  teamCategoryTitle: {
+    fontSize: 20,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+    flex: 1,
+  },
+  teamCategoryTitleInline: {
+    fontSize: 17,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    flex: 1,
+    letterSpacing: -0.2,
+  },
+  teamCategoryActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, flexShrink: 0 },
   teamCategoryIconBtn: {
-    width: 36,
-    height: 36,
+    width: 38,
+    height: 38,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.surface,
+    backgroundColor: 'rgba(255,255,255,0.05)',
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
@@ -577,53 +853,72 @@ const styles = StyleSheet.create({
   addRecipeBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: spacing.sm,
     borderRadius: borderRadius.full,
     backgroundColor: colors.accent,
   },
   addRecipeBtnPressed: { opacity: 0.9 },
   addRecipeBtnIconWrap: { alignItems: 'center', justifyContent: 'center' },
-  addRecipeBtnText: { fontSize: 14, fontFamily: fonts.semibold, color: colors.bgDark },
-  noRecipesText: { fontSize: 13, color: colors.textSecondary, marginBottom: spacing.sm },
+  addRecipeBtnText: { fontSize: 13, fontFamily: fonts.semibold, color: colors.bgDark },
+  noRecipesText: { fontSize: 14, color: colors.textMuted, marginBottom: spacing.sm, lineHeight: 20 },
   emptyInline: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.surface,
-    padding: spacing.md,
+    backgroundColor: 'rgba(255,255,255,0.03)',
+    padding: spacing.lg,
     marginBottom: spacing.sm,
   },
-  teamRecipeCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.sm,
+  teamRecipeShell: {
     marginBottom: spacing.sm,
-    backgroundColor: colors.glassBg,
     borderRadius: borderRadius.lg,
     borderWidth: 1,
     borderColor: colors.glassBorder,
+    backgroundColor: colors.glassBg,
+    overflow: 'hidden',
+    ...shadow.md,
+  },
+  teamRecipeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.sm,
     gap: spacing.md,
   },
-  teamRecipeImage: { width: 56, height: 56, borderRadius: borderRadius.md },
-  teamRecipeImagePlaceholder: {
-    width: 56,
-    height: 56,
+  teamRecipeImage: {
+    width: 58,
+    height: 58,
     borderRadius: borderRadius.md,
-    backgroundColor: colors.accent + '18',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.15)',
+  },
+  teamRecipeImagePlaceholder: {
+    width: 58,
+    height: 58,
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.2)',
   },
   teamRecipeBody: { flex: 1, minWidth: 0 },
-  teamRecipeTitle: { fontSize: 15, fontFamily: fonts.semibold, color: colors.textPrimary, letterSpacing: 0.4 },
+  teamRecipeTitle: { fontSize: 15, fontFamily: fonts.semibold, color: colors.textPrimary, lineHeight: 21 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', padding: spacing.lg },
-  modalBox: { backgroundColor: colors.glassBg, borderRadius: borderRadius.lg, borderWidth: 1, borderColor: colors.glassBorder, padding: spacing.lg },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.78)', justifyContent: 'center', padding: spacing.lg },
+  modalBox: {
+    backgroundColor: colors.glassBg,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.2)',
+    padding: spacing.lg,
+    ...shadow.lg,
+  },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
-  modalTitle: { fontSize: 18, fontFamily: fonts.semibold, color: colors.textPrimary },
+  modalTitle: { fontSize: 18, fontFamily: fonts.bold, color: colors.textPrimary },
   modalCloseBtn: { padding: spacing.sm },
   modalClose: { fontSize: 22, color: colors.textSecondary },
-  modalHint: { fontSize: 12, color: colors.textSecondary, marginBottom: spacing.xs },
+  modalHint: { fontSize: 12, color: colors.textMuted, marginBottom: spacing.xs },
   modalBtn: { marginTop: spacing.lg },
 });

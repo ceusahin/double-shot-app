@@ -15,6 +15,7 @@ import {
   useBusinessDayClock,
 } from '../utils/businessDay';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 const HOURLY_RATE_STORAGE_KEY = 'timesheet-hourly-rate';
 
@@ -98,6 +99,7 @@ function hoursBetweenDecimal(startIso: string, endIso: string | null): number {
 }
 
 export function TimesheetScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const { team } = route.params;
   const { businessDateKey } = useBusinessDayClock();
   const [mainTab, setMainTab] = useState<TimesheetTabKey>('puantaj');
@@ -198,7 +200,11 @@ export function TimesheetScreen({ route }: Props) {
   }, [members, effectiveLogs, hourlyRate]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
       <TabBar tabs={TIMESHEET_TABS} activeKey={mainTab} onChange={setMainTab} variant="primary" />
 
       {mainTab === 'puantaj' && (
@@ -416,7 +422,7 @@ export function TimesheetScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   sectionTitle: { ...typography.subtitle, color: colors.textPrimary, marginBottom: spacing.xs },
   hint: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.md },
   placeholder: { ...typography.body, color: colors.textSecondary },

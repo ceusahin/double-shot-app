@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 import { AuthStack } from './AuthStack';
 import { MainStack } from './MainStack';
 import { SplashScreen } from '../components/SplashScreen';
+import { ThemedAlertHost } from '../components/ThemedAlertHost';
 import { navigationRef } from './navigationRef';
 import { colors, fonts } from '../utils/theme';
 
@@ -52,34 +53,38 @@ export function RootNavigator() {
     return () => sub.remove();
   }, [isAuthenticated]);
 
+  let body: React.ReactNode;
   if (!splashDone) {
-    return <SplashScreen onComplete={() => setSplashDone(true)} />;
-  }
-
-  if (isLoading) {
-    return (
+    body = <SplashScreen onComplete={() => setSplashDone(true)} />;
+  } else if (isLoading) {
+    body = (
       <View style={styles.loading}>
         <ActivityIndicator size="large" color={colors.accent} />
       </View>
     );
-  }
-
-  if (!isAuthenticated) {
-    return (
+  } else if (!isAuthenticated) {
+    body = (
       <NavigationContainer theme={darkTheme}>
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="Auth" component={AuthStack} />
         </Stack.Navigator>
       </NavigationContainer>
     );
+  } else {
+    body = (
+      <NavigationContainer ref={navigationRef} theme={darkTheme}>
+        <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Main" component={MainStack} />
+        </Stack.Navigator>
+      </NavigationContainer>
+    );
   }
 
   return (
-    <NavigationContainer ref={navigationRef} theme={darkTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="Main" component={MainStack} />
-      </Stack.Navigator>
-    </NavigationContainer>
+    <>
+      {body}
+      <ThemedAlertHost />
+    </>
   );
 }
 

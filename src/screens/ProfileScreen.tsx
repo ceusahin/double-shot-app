@@ -1,21 +1,23 @@
-import React, { useState, useLayoutEffect, useMemo, useEffect } from 'react';
+import React, { useState, useLayoutEffect, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   Pressable,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
-import { Avatar, Card, Button, Input } from '../components';
+import { Avatar, Button, Input } from '../components';
+import { AuthScreenRoot, AuthFormCard } from './auth/AuthChrome';
 import { useAuthStore } from '../store/authStore';
 import {
   signOut,
@@ -25,36 +27,36 @@ import {
   updateAuthEmail,
   updatePassword,
 } from '../services/auth';
+import { getMyTeams } from '../services/teams';
 import { getMyRolesSummary } from '../services/rbac';
-import { getTrainingProgress, getGlobalTrainings } from '../services/training';
-import { colors, spacing, typography, fonts } from '../utils/theme';
+import { isPlatformStaff, sumQuotaBalances } from '../services/platformAdmin';
+import { colors, spacing, typography, fonts, borderRadius } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 
 const MIN_PASSWORD_LENGTH = 6;
-/** base64 kullanma; düşük quality ile picker çıktısını küçült (OOM / çökme riskini azaltır). */
 const PROFILE_PHOTO_PICKER_QUALITY = 0.72;
 
 type SettingsView = 'main' | 'account-menu' | 'personal' | 'email' | 'password';
 
 export function ProfileScreen() {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
+  const staff = isPlatformStaff(user);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsView, setSettingsView] = useState<SettingsView>('main');
   const [photoLoading, setPhotoLoading] = useState(false);
 
-  // Kişisel bilgiler (ad, soyad)
   const [name, setName] = useState('');
   const [surname, setSurname] = useState('');
   const [personalSaving, setPersonalSaving] = useState(false);
   const [personalError, setPersonalError] = useState('');
 
-  // Mail
   const [email, setEmail] = useState('');
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailError, setEmailError] = useState('');
 
-  // Şifre
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
@@ -82,24 +84,11 @@ export function ProfileScreen() {
   const roleSummaries = roleData ?? [];
   const rolesStatLoading = !!user?.id && rolesPending && roleSummaries.length === 0;
 
-  const { data: progressList = [] } = useQuery({
-    queryKey: ['training-progress', user?.id],
-    queryFn: () => getTrainingProgress(user!.id),
+  const { data: myTeams = [] } = useQuery({
+    queryKey: ['my-teams', user?.id],
+    queryFn: () => getMyTeams(user!.id),
     enabled: !!user?.id,
   });
-
-  const { data: trainingsList = [] } = useQuery({
-    queryKey: ['global-trainings'],
-    queryFn: getGlobalTrainings,
-  });
-
-  const badges = useMemo(() => {
-    const completed = progressList.filter((p) => p.completed);
-    return completed.map((p) => {
-      const training = trainingsList.find((t) => t.id === p.training_id);
-      return { id: p.id, title: training?.title ?? 'Eğitim', score: p.score };
-    });
-  }, [progressList, trainingsList]);
 
   useEffect(() => {
     if (showSettingsModal && user) {
@@ -118,6 +107,8 @@ export function ProfileScreen() {
 
   if (!user) return null;
 
+  const quotaTotal = staff ? null : sumQuotaBalances(user);
+
   const handleSavePersonal = async () => {
     setPersonalError('');
     const trimmedName = name.trim();
@@ -127,7 +118,7 @@ export function ProfileScreen() {
       await updateProfile(user.id, { name: trimmedName, surname: trimmedSurname });
       const updated = await getProfile(user.id);
       if (updated) setUser(updated);
-      Alert.alert('Kaydedildi', 'Kişisel bilgileriniz güncellendi.');
+      themedAlert('Kaydedildi', 'Kişisel bilgileriniz güncellendi.');
     } catch (e) {
       setPersonalError(e instanceof Error ? e.message : 'Güncellenemedi.');
     } finally {
@@ -148,7 +139,7 @@ export function ProfileScreen() {
       await updateProfile(user.id, { email: trimmedEmail });
       const updated = await getProfile(user.id);
       if (updated) setUser(updated);
-      Alert.alert('Kaydedildi', 'E-posta adresiniz güncellendi.');
+      themedAlert('Kaydedildi', 'E-posta adresiniz güncellendi.');
     } catch (e) {
       setEmailError(e instanceof Error ? e.message : 'Güncellenemedi.');
     } finally {
@@ -176,7 +167,7 @@ export function ProfileScreen() {
       setCurrentPassword('');
       setNewPassword('');
       setNewPasswordConfirm('');
-      Alert.alert('Şifre değişti', 'Yeni şifrenizle giriş yapabilirsiniz.');
+      themedAlert('Şifre değişti', 'Yeni şifrenizle giriş yapabilirsiniz.');
     } catch (e) {
       setPasswordError(e instanceof Error ? e.message : 'Şifre değiştirilemedi.');
     } finally {
@@ -208,7 +199,7 @@ export function ProfileScreen() {
     if (!user?.id) return;
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('İzin gerekli', 'Profil fotoğrafı eklemek için galeri erişimine izin verin.');
+      themedAlert('İzin gerekli', 'Profil fotoğrafı eklemek için galeri erişimine izin verin.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -222,104 +213,119 @@ export function ProfileScreen() {
     setPhotoLoading(true);
     try {
       const asset = result.assets[0];
-      const url = await uploadProfilePhoto(user.id, asset.uri);
+      await uploadProfilePhoto(user.id, asset.uri);
       const updated = await getProfile(user.id);
       if (updated) setUser(updated);
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
-      Alert.alert('Fotoğraf yüklenemedi', message);
+      themedAlert('Fotoğraf yüklenemedi', message);
     } finally {
       setPhotoLoading(false);
     }
   };
 
+  const goBackInModal = () => {
+    if (settingsView === 'account-menu') setSettingsView('main');
+    else if (settingsView === 'personal' || settingsView === 'email' || settingsView === 'password') {
+      setSettingsView('account-menu');
+    }
+  };
+
   return (
     <>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <Pressable
-            onPress={pickAndUploadPhoto}
-            disabled={photoLoading}
-            style={styles.avatarPressable}
-          >
-            <Avatar
-              source={user.profile_photo}
-              name={displayName}
-              size={88}
-              style={styles.avatarWrap}
-            />
-            <View style={styles.avatarBadge}>
-              <Ionicons name="camera" size={20} color={colors.bgDark} />
-            </View>
-            {photoLoading && (
-              <View style={styles.avatarLoading}>
-                <Text style={styles.avatarLoadingText}>Yükleniyor…</Text>
+      <AuthScreenRoot>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[styles.content, { paddingTop: insets.top + spacing.sm, paddingBottom: insets.bottom + spacing.xxl }]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={styles.kicker}>Hesabım</Text>
+
+          <View style={styles.heroBlock}>
+            <Pressable onPress={pickAndUploadPhoto} disabled={photoLoading} style={styles.avatarPressable}>
+              <Avatar
+                source={user.profile_photo}
+                name={displayName}
+                size={96}
+                style={styles.avatarWrap}
+              />
+              <View style={styles.avatarBadge}>
+                <Ionicons name="camera" size={18} color={colors.bgDark} />
               </View>
-            )}
-          </Pressable>
-          <Text style={styles.name}>{displayName}</Text>
-        </View>
-
-        <View style={styles.statsRow}>
-          <Card style={styles.statCard}>
-            {rolesStatLoading ? (
-              <ActivityIndicator size="small" color={colors.accent} style={styles.statSpinner} />
-            ) : (
-              <Text style={styles.statValue}>{roleSummaries.length}</Text>
-            )}
-            <Text style={styles.statLabel}>Aktif Rol</Text>
-          </Card>
-          <Card style={styles.statCard}>
-            <Text style={styles.statValue}>{badges.length}</Text>
-            <Text style={styles.statLabel}>Rozet</Text>
-          </Card>
-          <Card style={styles.statCard}>
-            <Text style={styles.statValue}>—</Text>
-            <Text style={styles.statLabel}>Durum</Text>
-          </Card>
-        </View>
-
-        <Text style={styles.sectionTitle}>Kazanılan Rozetler</Text>
-        {badges.length === 0 ? (
-          <Card style={styles.badgesCard}>
-            <View style={styles.badgesEmpty}>
-              <Ionicons name="ribbon-outline" size={40} color={colors.textSecondary} />
-              <Text style={styles.badgesEmptyText}>Henüz kazanılan rozet yok</Text>
-              <Text style={styles.badgesEmptyHint}>Tamamlanan eğitimler burada görünecek.</Text>
-            </View>
-          </Card>
-        ) : (
-          <View style={styles.badgesGrid}>
-            {badges.map((b) => (
-              <Card key={b.id} style={styles.badgeCard}>
-                <View style={styles.badgeIconWrap}>
-                  <Ionicons name="ribbon" size={28} color={colors.accent} />
+              {photoLoading && (
+                <View style={styles.avatarLoading}>
+                  <Text style={styles.avatarLoadingText}>Yükleniyor…</Text>
                 </View>
-                <Text style={styles.badgeTitle} numberOfLines={2}>{b.title}</Text>
-                {b.score != null && (
-                  <Text style={styles.badgeScore}>{b.score} puan</Text>
-                )}
-              </Card>
-            ))}
-          </View>
-        )}
-      </ScrollView>
+              )}
+            </Pressable>
 
-      <Modal
-        visible={showSettingsModal}
-        transparent
-        animationType="fade"
-        onRequestClose={closeModal}
-      >
+            <View style={styles.nameGroup}>
+              <Text style={styles.nameLine}>{displayName}</Text>
+            </View>
+
+            <View style={styles.emailRow}>
+              <Ionicons name="mail-outline" size={17} color={colors.textMuted} />
+              <Text style={styles.emailText} numberOfLines={2}>
+                {user.email}
+              </Text>
+            </View>
+            {user.created_at ? (
+              <Text style={styles.memberSince}>
+                Üyelik{' '}
+                {new Date(user.created_at).toLocaleDateString('tr-TR', {
+                  month: 'long',
+                  year: 'numeric',
+                })}
+              </Text>
+            ) : null}
+          </View>
+
+          <AuthFormCard style={styles.metricsCard}>
+            <LinearGradient
+              colors={['rgba(212, 175, 55, 0.08)', 'transparent']}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
+            <Text style={styles.metricsCardTitle}>Özet</Text>
+            <View style={styles.metricsRow}>
+              <View style={styles.metricCell}>
+                {rolesStatLoading ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : (
+                  <Text style={styles.metricValue}>{roleSummaries.length}</Text>
+                )}
+                <Text style={styles.metricLabel}>Aktif rol</Text>
+              </View>
+              <View style={styles.metricDivider} />
+              <View style={styles.metricCell}>
+                <Text style={styles.metricValue}>{myTeams.length}</Text>
+                <Text style={styles.metricLabel}>Ekip üyeliği</Text>
+              </View>
+              <View style={styles.metricDivider} />
+              <View style={styles.metricCell}>
+                <Text style={styles.metricValue}>{staff ? '—' : quotaTotal ?? 0}</Text>
+                <Text style={styles.metricLabel}>{staff ? 'Kota' : 'Kalan kota'}</Text>
+              </View>
+            </View>
+            {staff ? (
+              <Text style={styles.metricsHint}>Platform hesabında ekip kotası uygulanmaz.</Text>
+            ) : null}
+          </AuthFormCard>
+
+          <Text style={styles.footerHint}>
+            Ayarlar menüsünden e-posta, şifre ve kişisel bilgilerinizi güncelleyebilirsiniz.
+          </Text>
+        </ScrollView>
+      </AuthScreenRoot>
+
+      <Modal visible={showSettingsModal} transparent animationType="fade" onRequestClose={closeModal}>
         <Pressable style={styles.modalOverlay} onPress={closeModal}>
           <Pressable style={styles.modalContent} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHeader}>
               {showBack ? (
-                <Pressable onPress={() => setSettingsView(settingsView === 'account-menu' ? 'main' : 'account-menu')} hitSlop={12}>
+                <Pressable onPress={goBackInModal} hitSlop={12}>
                   <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
                 </Pressable>
               ) : (
@@ -476,18 +482,27 @@ export function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bgDark,
-  },
+  scroll: { flex: 1 },
   content: {
-    padding: spacing.md,
-    paddingBottom: spacing.xxl,
+    paddingHorizontal: spacing.md,
   },
-  header: {
+  kicker: {
+    ...typography.small,
+    color: colors.accent,
+    fontFamily: fonts.semibold,
+    letterSpacing: 1.4,
+    textTransform: 'uppercase',
+    marginBottom: spacing.xs,
+  },
+  heroLead: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginBottom: spacing.lg,
+    lineHeight: 22,
+  },
+  heroBlock: {
     alignItems: 'center',
     marginBottom: spacing.lg,
-    marginTop: spacing.md,
   },
   avatarPressable: {
     position: 'relative',
@@ -499,8 +514,8 @@ const styles = StyleSheet.create({
   },
   avatarBadge: {
     position: 'absolute',
-    right: 0,
-    bottom: 0,
+    right: 2,
+    bottom: 2,
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -512,7 +527,7 @@ const styles = StyleSheet.create({
   },
   avatarLoading: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.55)',
     borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
@@ -520,86 +535,89 @@ const styles = StyleSheet.create({
   avatarLoadingText: {
     fontSize: 12,
     color: colors.textPrimary,
+    fontFamily: fonts.medium,
   },
-  name: {
-    ...typography.title,
-    color: colors.textPrimary,
-    marginTop: spacing.sm,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  statCard: {
-    flex: 1,
+  nameGroup: {
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: spacing.md,
-  },
-  statValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.textPrimary,
-  },
-  statSpinner: {
-    minHeight: 22,
-    marginVertical: 2,
-  },
-  statLabel: {
-    ...typography.small,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  sectionTitle: {
-    ...typography.subtitle,
-    color: colors.textPrimary,
-    marginTop: spacing.lg,
     marginBottom: spacing.sm,
   },
-  badgesCard: {
-    marginBottom: spacing.lg,
-    paddingVertical: spacing.lg,
-  },
-  badgesEmpty: {
-    alignItems: 'center',
-    paddingVertical: spacing.md,
-  },
-  badgesEmptyText: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-  },
-  badgesEmptyHint: {
-    ...typography.small,
-    color: colors.textMuted,
-    marginTop: spacing.xs,
-  },
-  badgesGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.lg,
-  },
-  badgeCard: {
-    width: '48%',
-    minWidth: 140,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
-    alignItems: 'center',
-  },
-  badgeIconWrap: {
-    marginBottom: spacing.xs,
-  },
-  badgeTitle: {
-    ...typography.small,
+  nameLine: {
+    ...typography.title,
     color: colors.textPrimary,
     textAlign: 'center',
   },
-  badgeScore: {
+  emailRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    maxWidth: '100%',
+    paddingHorizontal: spacing.sm,
+    justifyContent: 'center',
+  },
+  emailText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    flexShrink: 1,
+    textAlign: 'center',
+  },
+  memberSince: {
     ...typography.small,
-    color: colors.accent,
-    marginTop: 2,
+    color: colors.textMuted,
+    marginTop: spacing.md,
+    textAlign: 'center',
+  },
+  metricsCard: {
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  metricsCardTitle: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+    marginBottom: spacing.md,
+  },
+  metricsRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  metricCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.xs,
+  },
+  metricValue: {
+    fontSize: 22,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+  },
+  metricLabel: {
+    ...typography.small,
+    color: colors.textMuted,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  metricDivider: {
+    width: StyleSheet.hairlineWidth,
+    backgroundColor: colors.border,
+    marginVertical: 4,
+  },
+  metricsHint: {
+    ...typography.small,
+    color: colors.textMuted,
+    marginTop: spacing.md,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  footerHint: {
+    ...typography.small,
+    color: colors.textMuted,
+    textAlign: 'center',
+    lineHeight: 20,
+    paddingHorizontal: spacing.sm,
   },
   headerSettingsBtn: {
     padding: spacing.sm,
@@ -607,15 +625,17 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    backgroundColor: 'rgba(0,0,0,0.75)',
     justifyContent: 'center',
     padding: spacing.lg,
   },
   modalContent: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
+    backgroundColor: colors.glassBg,
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
     padding: spacing.lg,
-    maxHeight: '80%',
+    maxHeight: '82%',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -640,7 +660,7 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   settingsFormWrap: {
-    maxHeight: 380,
+    maxHeight: 400,
   },
   settingsInput: {
     marginBottom: spacing.sm,
@@ -655,8 +675,8 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   logoutBtn: {
-    borderColor: 'rgba(255, 50, 50, 0.3)',
+    borderColor: 'rgba(255, 80, 80, 0.35)',
     marginTop: spacing.sm,
   },
-  logoutText: { color: '#ff6b6b' },
+  logoutText: { color: '#ff8a8a' },
 });

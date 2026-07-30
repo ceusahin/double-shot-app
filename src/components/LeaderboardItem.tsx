@@ -9,6 +9,8 @@ interface LeaderboardItemProps {
   user: UserProfile;
   score: number;
   scoreLabel?: string;
+  /** Örn. seviye etiketi; verilmezse alt satır gösterilmez. */
+  subtitle?: string;
   onPress?: () => void;
 }
 
@@ -17,6 +19,7 @@ export function LeaderboardItem({
   user,
   score,
   scoreLabel = 'XP',
+  subtitle,
   onPress,
 }: LeaderboardItemProps) {
   const displayName = [user.name, user.surname].filter(Boolean).join(' ') || user.email;
@@ -35,7 +38,7 @@ export function LeaderboardItem({
         <Text style={styles.name} numberOfLines={1}>
           {displayName}
         </Text>
-        <Text style={styles.level}>{user.level}</Text>
+        {subtitle ? <Text style={styles.level}>{subtitle}</Text> : null}
       </View>
       <View style={styles.scoreBox}>
         <Text style={styles.score}>{score}</Text>

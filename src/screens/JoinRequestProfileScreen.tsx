@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
@@ -7,6 +7,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Avatar, Card } from '../components';
 import { respondToJoinRequest } from '../services/teams';
 import { colors, spacing, typography, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { MainStackParamList } from '../navigation/MainStack';
 
 type Nav = StackNavigationProp<MainStackParamList, 'JoinRequestProfile'>;
@@ -30,7 +31,7 @@ export function JoinRequestProfileScreen() {
       ]);
       navigation.goBack();
     },
-    onError: (e) => Alert.alert('Hata', e instanceof Error ? e.message : 'İstek güncellenemedi.'),
+    onError: (e) => themedAlert('Hata', e instanceof Error ? e.message : 'İstek güncellenemedi.'),
   });
 
   const fullName = [

@@ -1,5 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert, Modal, Animated } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+  Modal,
+  Animated,
+} from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -17,8 +25,10 @@ import {
   updateInventoryItem,
 } from '../services/inventory';
 import { borderRadius, colors, fonts, spacing, typography } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { TeamInventoryCategory, TeamInventoryItem } from '../types';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type RouteProps = RouteProp<TeamsStackParamList, 'InventoryManagement'>;
 type MainTab = 'stock' | 'admin';
@@ -56,6 +66,7 @@ function toNumber(value: string): number {
 }
 
 export function InventoryManagementScreen() {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const route = useRoute<RouteProps>();
   const { team } = route.params;
   const user = useAuthStore((s) => s.user);
@@ -163,7 +174,7 @@ export function InventoryManagementScreen() {
       setNewCategoryName('');
       invalidate();
     },
-    onError: (e) => Alert.alert('Hata', e instanceof Error ? e.message : 'Kategori eklenemedi.'),
+    onError: (e) => themedAlert('Hata', e instanceof Error ? e.message : 'Kategori eklenemedi.'),
   });
 
   const updateCategoryMutation = useMutation({
@@ -181,13 +192,13 @@ export function InventoryManagementScreen() {
       setCategoryForm(EMPTY_CATEGORY_FORM);
       invalidate();
     },
-    onError: (e) => Alert.alert('Hata', e instanceof Error ? e.message : 'Kategori güncellenemedi.'),
+    onError: (e) => themedAlert('Hata', e instanceof Error ? e.message : 'Kategori güncellenemedi.'),
   });
 
   const deleteCategoryMutation = useMutation({
     mutationFn: async (category: TeamInventoryCategory) => deleteInventoryCategory(category.id, team.id),
     onSuccess: invalidate,
-    onError: (e) => Alert.alert('Hata', e instanceof Error ? e.message : 'Kategori silinemedi.'),
+    onError: (e) => themedAlert('Hata', e instanceof Error ? e.message : 'Kategori silinemedi.'),
   });
 
   const saveItemMutation = useMutation({
@@ -215,7 +226,7 @@ export function InventoryManagementScreen() {
       setItemForm(EMPTY_ITEM_FORM);
       invalidate();
     },
-    onError: (e) => Alert.alert('Hata', e instanceof Error ? e.message : 'Ürün kaydedilemedi.'),
+    onError: (e) => themedAlert('Hata', e instanceof Error ? e.message : 'Ürün kaydedilemedi.'),
   });
 
   const adjustMutation = useMutation({
@@ -228,13 +239,13 @@ export function InventoryManagementScreen() {
         team.owner_id
       ),
     onSuccess: invalidate,
-    onError: (e) => Alert.alert('Hata', e instanceof Error ? e.message : 'Stok değiştirilemedi.'),
+    onError: (e) => themedAlert('Hata', e instanceof Error ? e.message : 'Stok değiştirilemedi.'),
   });
 
   const deleteItemMutation = useMutation({
     mutationFn: async (itemId: string) => deleteInventoryItem(itemId, team.id),
     onSuccess: invalidate,
-    onError: (e) => Alert.alert('Hata', e instanceof Error ? e.message : 'Ürün silinemedi.'),
+    onError: (e) => themedAlert('Hata', e instanceof Error ? e.message : 'Ürün silinemedi.'),
   });
 
   const openCreateItemModal = () => {
@@ -256,16 +267,26 @@ export function InventoryManagementScreen() {
 
   const handleSaveItem = () => {
     if (!isManager) {
-      Alert.alert('Yetki yok', 'Ürün yönetimi sadece ekip lideri/yönetici içindir.');
+      themedAlert('Yetki yok', 'Ürün yönetimi sadece ekip lideri/yönetici içindir.');
       return;
     }
-    if (!itemForm.name.trim()) return Alert.alert('Uyarı', 'Ürün adı girin.');
-    if (!itemForm.categoryId) return Alert.alert('Uyarı', 'Kategori seçin.');
+    if (!itemForm.name.trim()) {
+      themedAlert('Uyarı', 'Ürün adı girin.');
+      return;
+    }
+    if (!itemForm.categoryId) {
+      themedAlert('Uyarı', 'Kategori seçin.');
+      return;
+    }
     saveItemMutation.mutate();
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
 
       <View style={[styles.statusCard, lowStockCount > 0 && styles.statusCardAlert]}>
         <View style={[styles.statusIconWrap, lowStockCount > 0 && styles.statusIconWrapAlert]}>
@@ -488,7 +509,7 @@ export function InventoryManagementScreen() {
                       </Pressable>
                       <Pressable
                         onPress={() =>
-                          Alert.alert('Kategori sil', `"${category.name}" silinsin mi?`, [
+                          themedAlert('Kategori sil', `"${category.name}" silinsin mi?`, [
                             { text: 'İptal', style: 'cancel' },
                             {
                               text: 'Sil',
@@ -538,7 +559,7 @@ export function InventoryManagementScreen() {
                     </Pressable>
                     <Pressable
                       onPress={() =>
-                        Alert.alert('Ürün sil', `"${item.name}" silinsin mi?`, [
+                        themedAlert('Ürün sil', `"${item.name}" silinsin mi?`, [
                           { text: 'İptal', style: 'cancel' },
                           {
                             text: 'Sil',
@@ -655,7 +676,7 @@ export function InventoryManagementScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
 
   heroCard: {
     borderRadius: borderRadius.lg,

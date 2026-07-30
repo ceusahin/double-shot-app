@@ -1,5 +1,11 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+} from 'react-native';
 import { RouteProp } from '@react-navigation/native';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -14,11 +20,14 @@ import {
   type TeamMemberFeatureKey,
 } from '../constants/memberFeaturePermissions';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'MemberPermissions'> };
 
 export function MemberPermissionsScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const { team } = route.params;
   const queryClient = useQueryClient();
   const [expandedUserIds, setExpandedUserIds] = useState<Record<string, boolean>>({});
@@ -62,14 +71,14 @@ export function MemberPermissionsScreen({ route }: Props) {
       queryClient.invalidateQueries({ queryKey: ['team-member-feature-permissions', team.id] });
     },
     onError: (err: unknown) => {
-      Alert.alert('Hata', err instanceof Error ? err.message : 'İzin güncellenemedi.');
+      themedAlert('Hata', err instanceof Error ? err.message : 'İzin güncellenemedi.');
     },
   });
 
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
       showsVerticalScrollIndicator={false}
     >
       <Text style={styles.sectionTitle}>Üye İzinleri</Text>
@@ -168,7 +177,7 @@ export function MemberPermissionsScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl, gap: spacing.md },
+  content: { padding: spacing.md, paddingBottom: 0, gap: spacing.md },
   sectionTitle: { ...typography.title, color: colors.accent },
   sectionSubtitle: {
     ...typography.caption,

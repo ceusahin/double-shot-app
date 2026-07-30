@@ -9,12 +9,18 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
+import { useQuery } from '@tanstack/react-query';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { AuthScreenRoot } from './auth/AuthChrome';
 import { colors, spacing, typography, borderRadius, fonts, shadow } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
+import { useAuthStore } from '../store/authStore';
+import { canUserCreateTeam } from '../services/platformAdmin';
+import { countTeamsWhereOwner } from '../services/teams';
 import {
   TEAM_PLANS,
   EXTRA_SEAT_MONTHLY_TRY,
@@ -36,6 +42,13 @@ const BILLING_OPTIONS: { months: BillingMonths; label: string; sub: string }[] =
 export function TeamPlanPickerScreen() {
   const navigation = useNavigation<Nav>();
   const insets = useSafeAreaInsets();
+  const tabScrollBottomPad = useMainTabScrollPadding();
+  const user = useAuthStore((s) => s.user);
+  const { data: ownedTeamCount = 0 } = useQuery({
+    queryKey: ['owned-teams-count', user?.id],
+    queryFn: () => countTeamsWhereOwner(user!.id),
+    enabled: !!user?.id,
+  });
   const { width } = useWindowDimensions();
   const cardWidth = Math.min(width - spacing.md * 2, 360);
 
@@ -46,6 +59,13 @@ export function TeamPlanPickerScreen() {
   const totalNow = useMemo(() => priceForBilling(selected, billingMonths), [selected, billingMonths]);
 
   const goSummary = () => {
+    if (!canUserCreateTeam(user, ownedTeamCount)) {
+      themedAlert(
+        'Takım oluşturma',
+        'Kullanılabilir kota hakkınız yok. Süper yöneticinizden süre kotası vermesini isteyin.'
+      );
+      return;
+    }
     navigation.navigate('CreateTeamSummary', { planId, billingMonths });
   };
 
@@ -53,7 +73,7 @@ export function TeamPlanPickerScreen() {
     <AuthScreenRoot>
       <View style={styles.flex}>
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: tabScrollBottomPad + 100 }]}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.hero}>

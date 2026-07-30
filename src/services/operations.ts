@@ -1,19 +1,19 @@
 import { supabase } from './supabase';
 import type { OperationTask, OperationTaskLog } from '../types';
 
+/** Yalnızca ilgili ekibe tanımlı görevler (global `team_id` null satırları dahil değil). */
 export async function getOperationTasks(teamId?: string | null): Promise<OperationTask[]> {
-  const base = supabase
+  if (!teamId) {
+    return [];
+  }
+
+  const { data, error } = await supabase
     .from('operation_tasks')
     .select('*')
+    .eq('team_id', teamId)
     .order('type')
     .order('day_of_week')
     .order('sort_order');
-
-  const query = teamId
-    ? base.or(`team_id.is.null,team_id.eq.${teamId}`)
-    : base.is('team_id', null);
-
-  const { data, error } = await query;
 
   if (error) {
     throw new Error(error.message ?? 'Operasyon görevleri yüklenemedi');

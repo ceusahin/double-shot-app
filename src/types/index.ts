@@ -5,26 +5,29 @@
 export type UserRole = 'BARISTA' | 'MANAGER';
 export type TeamMemberRole = 'BARISTA' | 'MANAGER';
 
-export type LevelName =
-  | 'Beginner'
-  | 'Junior Barista'
-  | 'Barista'
-  | 'Senior Barista'
-  | 'Head Barista';
+/** Süper yöneticinin verdiği ekip kurma hakkı türleri (DB ile uyumlu). */
+export type QuotaGrantKind = 'trial_15d' | 'months_1' | 'months_3' | 'months_6';
+
+export type QuotaBalances = Partial<Record<QuotaGrantKind, number>>;
 
 export interface UserProfile {
   id: string;
   name: string;
   surname: string;
   email: string;
-  role: UserRole;
-  level: LevelName;
-  experience_points: number;
   profile_photo: string | null;
   created_at: string;
+  /** Manuel (DB); ilk süper yönetici SQL ile atanır */
+  is_super_admin?: boolean;
+  /** Süper yönetici tarafından atanır; Yönetim sekmesi */
+  is_platform_admin?: boolean;
+  /** quota_balances toplamı ile senkron (kalan hak adedi); görüntüleme/özet için. Yetki: sum(quota_balances) > 0. */
+  max_owned_teams?: number;
+  /** Tür başına kalan ekip kurma hakkı (trial_15d, months_1, …). */
+  quota_balances?: QuotaBalances | null;
 }
 
-export type TeamSubscriptionPlan = 'eco' | 'growth' | 'scale';
+export type TeamSubscriptionPlan = 'eco' | 'growth' | 'scale' | 'trial';
 
 export interface Team {
   id: string;
@@ -42,6 +45,10 @@ export interface Team {
   subscription_billing_months?: 1 | 3 | 6 | null;
   subscription_started_at?: string | null;
   subscription_ends_at?: string | null;
+  /** Oluştururken hangi kota türünden düşüldü (platform/süper için null olabilir). */
+  quota_consumed_kind?: QuotaGrantKind | null;
+  /** Süper yöneticinin uyguladığı toplam manuel saat delta (+/-). 0 ise manuel ayarlama yok. */
+  manual_extension_hours?: number | null;
 }
 
 export interface TeamMember {

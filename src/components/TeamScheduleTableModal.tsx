@@ -8,12 +8,12 @@ import {
   ScrollView,
   useWindowDimensions,
   ActivityIndicator,
-  Alert,
   Platform,
 } from 'react-native';
 import { captureRef } from 'react-native-view-shot';
 import * as Sharing from 'expo-sharing';
 import * as MediaLibrary from 'expo-media-library';
+import Constants from 'expo-constants';
 import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { forcePortraitLock, setTeamScheduleFullscreenOpen } from '../services/appOrientation';
@@ -21,6 +21,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { colors, spacing, borderRadius, fonts, typography } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import { getCalendarColumnBusinessKey, getTimestampBusinessDateKey } from '../utils/businessDay';
 import {
   buildOrgRoleByUserId,
@@ -118,7 +119,10 @@ function TeamScheduleTableModalImpl({
   const queryClient = useQueryClient();
   const [measuredTableW, setMeasuredTableW] = React.useState(0);
   const [captureBusy, setCaptureBusy] = useState(false);
-  const scheduleTableCaptureRef = React.useRef<ScrollView>(null);
+  /** Tam tablo bitmap’i için ScrollView dışı, tam yükseklikte View (view-shot ScrollView’de sadece viewport alıyordu). */
+  const [snapshotExportActive, setSnapshotExportActive] = useState(false);
+  const scheduleTableSnapshotRef = React.useRef<View>(null);
+  const snapshotAwaitingLayoutRef = React.useRef(false);
 
   const [assignTarget, setAssignTarget] = useState<{
     dayIndex: number;
@@ -176,6 +180,28 @@ function TeamScheduleTableModalImpl({
   useEffect(() => {
     if (!visible) setAssignTarget(null);
   }, [visible]);
+
+  useEffect(() => {
+    if (!visible) {
+      setSnapshotExportActive(false);
+      snapshotAwaitingLayoutRef.current = false;
+      setCaptureBusy(false);
+    }
+  }, [visible]);
+
+  /** onLayout gelmezse (çok nadir) kullanıcı takılı kalmasın */
+  useEffect(() => {
+    if (!snapshotExportActive) return;
+    const t = setTimeout(() => {
+      if (snapshotAwaitingLayoutRef.current) {
+        snapshotAwaitingLayoutRef.current = false;
+        setSnapshotExportActive(false);
+        setCaptureBusy(false);
+        themedAlert('Hata', 'Görüntü için düzen hazırlanamadı. Tekrar deneyin.');
+      }
+    }, 5000);
+    return () => clearTimeout(t);
+  }, [snapshotExportActive]);
 
   useEffect(() => {
     if (!visible) setMeasuredTableW(0);
@@ -273,7 +299,7 @@ function TeamScheduleTableModalImpl({
       setAssignTarget(null);
     },
     onError: (e) => {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Atama yapılamadı.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Atama yapılamadı.');
     },
   });
 
@@ -281,7 +307,7 @@ function TeamScheduleTableModalImpl({
     mutationFn: (shiftId: string) => deleteShift(shiftId),
     onSuccess: () => invalidateShifts(),
     onError: (e) => {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Vardiya silinemedi.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Vardiya silinemedi.');
     },
   });
 
@@ -309,20 +335,16 @@ function TeamScheduleTableModalImpl({
 
   const scheduleTableReady = !loading && templates.length > 0 && sortedMembers.length > 0;
 
-  const handleExportScheduleImage = useCallback(async () => {
-    if (Platform.OS === 'web') {
-      Alert.alert('Desteklenmiyor', 'Bu özellik web sürümünde kullanılamaz.');
-      return;
-    }
-    if (!scheduleTableCaptureRef.current || captureBusy) return;
-    setCaptureBusy(true);
+  const runScheduleSnapshotCapture = useCallback(async () => {
     try {
-      await new Promise<void>((r) => setTimeout(r, 120));
-      const uri = await captureRef(scheduleTableCaptureRef, {
+      if (!scheduleTableSnapshotRef.current) {
+        themedAlert('Hata', 'Görüntü için tablo hazır değil.');
+        return;
+      }
+      const uri = await captureRef(scheduleTableSnapshotRef, {
         format: 'png',
         quality: 0.92,
         result: 'tmpfile',
-        snapshotContentContainer: true,
       });
       const shareAvailable = await Sharing.isAvailableAsync();
 
@@ -334,32 +356,193 @@ function TeamScheduleTableModalImpl({
             })
           : Promise.resolve();
 
-      Alert.alert('Program görüntüsü hazır', 'WhatsApp veya diğer uygulamalarla paylaşın; isterseniz galeriye kaydedin.', [
+      themedAlert('Program görüntüsü hazır', 'WhatsApp veya diğer uygulamalarla paylaşın; isterseniz galeriye kaydedin.', [
         { text: 'İptal', style: 'cancel' },
         ...(shareAvailable ? [{ text: 'Paylaş', onPress: () => void runShare() }] : []),
         {
           text: 'Galeriye kaydet',
           onPress: async () => {
             try {
-              const { granted } = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
+              if (Constants.appOwnership === 'expo' && Platform.OS === 'android') {
+                themedAlert(
+                  'Galeriye kayıt',
+                  'Expo Go, Android’de galeriye kayıt için gerekli izni veremiyor. Bu özellik kurulu uygulama veya geliştirme derlemesinde çalışır. Şimdilik Paylaş ile görüntüyü gönderip (ör. Dosyalar, WhatsApp) oradan kaydedebilirsiniz.'
+                );
+                return;
+              }
+              let granted = false;
+              try {
+                const result = await MediaLibrary.requestPermissionsAsync(true, ['photo']);
+                granted = result.granted;
+              } catch {
+                themedAlert(
+                  'Galeriye kayıt',
+                  'Galeri izni bu ortamda kullanılamıyor. Kurulu veya geliştirme sürümünde deneyin; şimdilik Paylaş ile kaydedebilirsiniz.'
+                );
+                return;
+              }
               if (!granted) {
-                Alert.alert('İzin gerekli', 'Kaydetmek için fotoğraf galerisi iznine ihtiyaç var.');
+                themedAlert('İzin gerekli', 'Kaydetmek için fotoğraf galerisi iznine ihtiyaç var.');
                 return;
               }
               await MediaLibrary.saveToLibraryAsync(uri);
-              Alert.alert('Tamam', 'Görüntü galeriye kaydedildi.');
+              themedAlert('Tamam', 'Görüntü galeriye kaydedildi.');
             } catch (err) {
-              Alert.alert('Hata', err instanceof Error ? err.message : 'Kayıt başarısız.');
+              themedAlert('Hata', err instanceof Error ? err.message : 'Kayıt başarısız.');
             }
           },
         },
       ]);
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Görüntü alınamadı.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Görüntü alınamadı.');
     } finally {
+      setSnapshotExportActive(false);
       setCaptureBusy(false);
     }
-  }, [captureBusy, teamName, weekRangeLabel]);
+  }, [teamName, weekRangeLabel]);
+
+  const onSnapshotTableLayout = useCallback(() => {
+    if (!snapshotAwaitingLayoutRef.current) return;
+    snapshotAwaitingLayoutRef.current = false;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        void runScheduleSnapshotCapture();
+      });
+    });
+  }, [runScheduleSnapshotCapture]);
+
+  const handleExportScheduleImage = useCallback(() => {
+    if (Platform.OS === 'web') {
+      themedAlert('Desteklenmiyor', 'Bu özellik web sürümünde kullanılamaz.');
+      return;
+    }
+    if (!scheduleTableReady || captureBusy) return;
+    setCaptureBusy(true);
+    snapshotAwaitingLayoutRef.current = true;
+    setSnapshotExportActive(true);
+  }, [captureBusy, scheduleTableReady]);
+
+  const renderScheduleStickyHeader = () => (
+    <View
+      style={[
+        styles.scheduleStickyHeader,
+        { height: HEADER_H, width: tableInnerW, minWidth: tableInnerW },
+      ]}
+      collapsable={false}
+    >
+      <View style={styles.scheduleHeaderInnerRow}>
+        <LinearGradient
+          colors={['#9A7827', colors.accent, '#E8C547']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[styles.cornerHeader, styles.headerCellRadius]}
+        >
+          <Text style={styles.headerCellText}>ÇALIŞAN / GÜN</Text>
+        </LinearGradient>
+        <View style={[styles.scrollDaysRow, { width: rowBandWidth }]}>
+          {weekDays.map((day, dayIndex) => {
+            const ck = colKeys[dayIndex];
+            const isTodayCol = ck === businessDateKey;
+            const cellW = dayCellWidths[dayIndex] ?? 40;
+            return (
+              <LinearGradient
+                key={ck}
+                colors={['#9A7827', colors.accent, '#E8C547']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={[
+                  styles.headerCellRadius,
+                  {
+                    width: cellW,
+                    minWidth: cellW,
+                    maxWidth: cellW,
+                    height: HEADER_H,
+                  },
+                  isTodayCol && styles.dayColumnHeaderToday,
+                ]}
+              >
+                <Text style={styles.templateHeaderName} numberOfLines={1} adjustsFontSizeToFit>
+                  {DAY_HEADERS_TR[dayIndex]}
+                </Text>
+                <Text style={styles.templateHeaderTime}>{day.getDate()}</Text>
+                {isTodayCol ? <Text style={styles.dayHeaderTodayTag}>Bugün</Text> : null}
+              </LinearGradient>
+            );
+          })}
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderScheduleMemberRows = (freezeInteraction: boolean) =>
+    sortedMembers.map((m) => (
+      <View key={m.id} style={[styles.unifiedDataRow, { width: tableInnerW }]}>
+        <LinearGradient
+          colors={['#9A7827', colors.accent, '#E8C547']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={[styles.headerCellRadius, styles.shiftLabelCell]}
+        >
+          <Text style={styles.memberRowName} numberOfLines={2}>
+            {displayName(m).toLocaleUpperCase('tr-TR')}
+          </Text>
+          <Text style={styles.memberRowRole} numberOfLines={2}>
+            {resolveShiftRoleLabel(m.user_id, teamOwnerId, members, null, rbacRoleByUserId[m.user_id]).toLocaleUpperCase(
+              'tr-TR'
+            )}
+          </Text>
+        </LinearGradient>
+        <View style={[styles.scrollDaysRow, { width: rowBandWidth }]}>
+          {weekDays.map((day, dayIndex) => {
+            const ck = colKeys[dayIndex];
+            const isTodayCol = ck === businessDateKey;
+            const list = shiftsByDayAndUser[ck]?.[m.user_id] ?? [];
+            const cellW = dayCellWidths[dayIndex] ?? 40;
+            return (
+              <Pressable
+                key={`${m.id}-${dayIndex}`}
+                onPress={() => {
+                  if (canEditSchedule && !freezeInteraction) setAssignTarget({ dayIndex, member: m });
+                }}
+                disabled={freezeInteraction || !canEditSchedule}
+                style={({ pressed }) => [
+                  styles.dataCellFixed,
+                  { width: cellW, minWidth: cellW, maxWidth: cellW },
+                  styles.bodyCell,
+                  isTodayCol && styles.dataCellToday,
+                  list.length === 0 && styles.dataCellOff,
+                  pressed && canEditSchedule && !freezeInteraction && styles.dataCellPressed,
+                ]}
+              >
+                {list.length === 0 ? (
+                  <View style={styles.cellOffBadge}>
+                    <Text style={styles.cellEmpty}>OFF</Text>
+                  </View>
+                ) : (
+                  <View style={styles.cellNames}>
+                    {list.map((s) => {
+                      const tpl = s.shift_template_id != null ? templateById[s.shift_template_id] : undefined;
+                      return (
+                        <View key={s.id} style={styles.cellShiftBlock}>
+                          <Text style={styles.cellShiftName} numberOfLines={2}>
+                            {tpl?.name ?? 'Vardiya'}
+                          </Text>
+                          {tpl ? (
+                            <Text style={styles.cellShiftTime} numberOfLines={1}>
+                              {tpl.start_time.slice(0, 5)} – {tpl.end_time.slice(0, 5)}
+                            </Text>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </Pressable>
+            );
+          })}
+        </View>
+      </View>
+    ));
 
   return (
     <View
@@ -458,7 +641,6 @@ function TeamScheduleTableModalImpl({
             }}
           >
             <ScrollView
-              ref={scheduleTableCaptureRef}
               stickyHeaderIndices={[0]}
               style={styles.tableBodyScroll}
               showsVerticalScrollIndicator
@@ -469,135 +651,30 @@ function TeamScheduleTableModalImpl({
                 { width: tableInnerW },
               ]}
             >
-              <View
-                style={[
-                  styles.scheduleStickyHeader,
-                  { height: HEADER_H, width: tableInnerW, minWidth: tableInnerW },
-                ]}
-                collapsable={false}
-              >
-                {/* Yapışkan başlık: flexDirection iç View’da (Android’de dış sarmalayıcı satır stilini düşürebiliyor). */}
-                <View style={styles.scheduleHeaderInnerRow}>
-                  <LinearGradient
-                    colors={['#9A7827', colors.accent, '#E8C547']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 1 }}
-                    style={[styles.cornerHeader, styles.headerCellRadius]}
-                  >
-                    <Text style={styles.headerCellText}>ÇALIŞAN / GÜN</Text>
-                  </LinearGradient>
-                  <View style={[styles.scrollDaysRow, { width: rowBandWidth }]}>
-                  {weekDays.map((day, dayIndex) => {
-                    const ck = colKeys[dayIndex];
-                    const isTodayCol = ck === businessDateKey;
-                    const cellW = dayCellWidths[dayIndex] ?? 40;
-                    return (
-                      <LinearGradient
-                        key={ck}
-                        colors={['#9A7827', colors.accent, '#E8C547']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 0, y: 1 }}
-                        style={[
-                          styles.headerCellRadius,
-                          {
-                            width: cellW,
-                            minWidth: cellW,
-                            maxWidth: cellW,
-                            height: HEADER_H,
-                          },
-                          isTodayCol && styles.dayColumnHeaderToday,
-                        ]}
-                      >
-                        <Text style={styles.templateHeaderName} numberOfLines={1} adjustsFontSizeToFit>
-                          {DAY_HEADERS_TR[dayIndex]}
-                        </Text>
-                        <Text style={styles.templateHeaderTime}>{day.getDate()}</Text>
-                        {isTodayCol ? (
-                          <Text style={styles.dayHeaderTodayTag}>Bugün</Text>
-                        ) : null}
-                      </LinearGradient>
-                    );
-                  })}
-                  </View>
+              {renderScheduleStickyHeader()}
+              {renderScheduleMemberRows(false)}
+            </ScrollView>
+
+            {snapshotExportActive ? (
+              <View style={styles.snapshotOffscreenWrap} pointerEvents="none" collapsable={false}>
+                <View
+                  ref={scheduleTableSnapshotRef}
+                  collapsable={false}
+                  onLayout={onSnapshotTableLayout}
+                  style={[
+                    styles.snapshotTableRoot,
+                    {
+                      width: tableInnerW,
+                      gap: spacing.xs,
+                      paddingBottom: spacing.xl,
+                    },
+                  ]}
+                >
+                  {renderScheduleStickyHeader()}
+                  {renderScheduleMemberRows(true)}
                 </View>
               </View>
-
-              {sortedMembers.map((m) => (
-                <View key={m.id} style={[styles.unifiedDataRow, { width: tableInnerW }]}>
-                  <LinearGradient
-                    colors={['#9A7827', colors.accent, '#E8C547']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 1 }}
-                    style={[styles.headerCellRadius, styles.shiftLabelCell]}
-                  >
-                    <Text style={styles.memberRowName} numberOfLines={2}>
-                      {displayName(m).toLocaleUpperCase('tr-TR')}
-                    </Text>
-                    <Text style={styles.memberRowRole} numberOfLines={2}>
-                      {resolveShiftRoleLabel(
-                        m.user_id,
-                        teamOwnerId,
-                        members,
-                        null,
-                        rbacRoleByUserId[m.user_id]
-                      ).toLocaleUpperCase('tr-TR')}
-                    </Text>
-                  </LinearGradient>
-                  <View style={[styles.scrollDaysRow, { width: rowBandWidth }]}>
-                    {weekDays.map((day, dayIndex) => {
-                      const ck = colKeys[dayIndex];
-                      const isTodayCol = ck === businessDateKey;
-                      const list = shiftsByDayAndUser[ck]?.[m.user_id] ?? [];
-                      const cellW = dayCellWidths[dayIndex] ?? 40;
-                      return (
-                        <Pressable
-                          key={`${m.id}-${dayIndex}`}
-                          onPress={() => {
-                            if (canEditSchedule) setAssignTarget({ dayIndex, member: m });
-                          }}
-                          disabled={!canEditSchedule}
-                          style={({ pressed }) => [
-                            styles.dataCellFixed,
-                            { width: cellW, minWidth: cellW, maxWidth: cellW },
-                            styles.bodyCell,
-                            isTodayCol && styles.dataCellToday,
-                            list.length === 0 && styles.dataCellOff,
-                            pressed && canEditSchedule && styles.dataCellPressed,
-                          ]}
-                        >
-                          {list.length === 0 ? (
-                            <View style={styles.cellOffBadge}>
-                              <Text style={styles.cellEmpty}>OFF</Text>
-                            </View>
-                          ) : (
-                            <View style={styles.cellNames}>
-                              {list.map((s) => {
-                                const tpl =
-                                  s.shift_template_id != null
-                                    ? templateById[s.shift_template_id]
-                                    : undefined;
-                                return (
-                                  <View key={s.id} style={styles.cellShiftBlock}>
-                                    <Text style={styles.cellShiftName} numberOfLines={2}>
-                                      {tpl?.name ?? 'Vardiya'}
-                                    </Text>
-                                    {tpl ? (
-                                      <Text style={styles.cellShiftTime} numberOfLines={1}>
-                                        {tpl.start_time.slice(0, 5)} – {tpl.end_time.slice(0, 5)}
-                                      </Text>
-                                    ) : null}
-                                  </View>
-                                );
-                              })}
-                            </View>
-                          )}
-                        </Pressable>
-                      );
-                    })}
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
+            ) : null}
           </View>
         )}
 
@@ -674,7 +751,7 @@ function TeamScheduleTableModalImpl({
                         {canEditSchedule ? (
                           <Pressable
                             onPress={() => {
-                              Alert.alert('Vardiyayı kaldır', 'Bu atamayı silmek istiyor musunuz?', [
+                              themedAlert('Vardiyayı kaldır', 'Bu atamayı silmek istiyor musunuz?', [
                                 { text: 'İptal', style: 'cancel' },
                                 {
                                   text: 'Sil',
@@ -793,6 +870,18 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     width: '100%',
+  },
+  /** Tam tablo ölçümü: layout akışından çıkar; görüntü alma tüm satırları içersin. */
+  snapshotOffscreenWrap: {
+    position: 'absolute',
+    left: -16000,
+    top: 0,
+    opacity: 1,
+    zIndex: -10,
+    overflow: 'visible',
+  },
+  snapshotTableRoot: {
+    backgroundColor: colors.bgDark,
   },
   tableBodyScroll: {
     flex: 1,

@@ -1,6 +1,5 @@
 import { supabase } from './supabase';
 import type { UserProfile } from '../types';
-import type { UserRole } from '../types';
 
 const PROFILES_TABLE = 'users';
 
@@ -9,10 +8,13 @@ export async function getProfile(userId: string): Promise<UserProfile | null> {
     .from(PROFILES_TABLE)
     .select('*')
     .eq('id', userId)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) return null;
-  return data as UserProfile;
+  if (error) {
+    if (__DEV__) console.warn('[getProfile]', userId, error.message);
+    return null;
+  }
+  return data as UserProfile | null;
 }
 
 export async function createProfile(
@@ -21,7 +23,6 @@ export async function createProfile(
     name: string;
     surname: string;
     email: string;
-    role?: UserRole;
   }
 ): Promise<UserProfile | null> {
   const { data, error } = await supabase
@@ -31,9 +32,6 @@ export async function createProfile(
       name: payload.name,
       surname: payload.surname,
       email: payload.email,
-      role: payload.role ?? 'BARISTA',
-      level: 'Beginner',
-      experience_points: 0,
       profile_photo: null,
     })
     .select()
@@ -147,19 +145,6 @@ export async function uploadProfilePhoto(
   const publicUrl = `${base}${sep}v=${Date.now()}`;
   await updateProfile(userId, { profile_photo: publicUrl });
   return publicUrl;
-}
-
-export async function updateProfileXP(
-  userId: string,
-  experience_points: number,
-  level: UserProfile['level']
-): Promise<void> {
-  const { error } = await supabase
-    .from(PROFILES_TABLE)
-    .update({ experience_points, level })
-    .eq('id', userId);
-
-  if (error) throw error;
 }
 
 export async function signInWithEmail(email: string, password: string) {

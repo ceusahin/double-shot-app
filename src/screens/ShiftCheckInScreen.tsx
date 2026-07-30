@@ -1,27 +1,63 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { View, Text, StyleSheet, Alert, Pressable, ScrollView } from 'react-native';
+import React, { useState, useEffect, useMemo, useLayoutEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ScrollView,
+} from 'react-native';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Card } from '../components';
 import { Avatar } from '../components/Avatar';
 import { useAuthStore } from '../store/authStore';
 import { useLocation } from '../hooks/useLocation';
 import { getMyTeams } from '../services/teams';
 import { getActiveShiftLog, checkIn, checkOut } from '../services/shifts';
-import { getTeamBreakTemplates, getTeamActiveBreaks, getMyActiveBreak, startBreak, endBreak } from '../services/breaks';
+import {
+  getTeamBreakTemplates,
+  getTeamActiveBreaks,
+  getMyActiveBreak,
+  startBreak,
+  endBreak,
+} from '../services/breaks';
 import { getNotifications } from '../services/notificationsWrapper';
-import { colors, spacing, typography, fonts, borderRadius } from '../utils/theme';
+import { colors, spacing, fonts, borderRadius, shadow } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 import type { Team } from '../types';
 
 type Props = {
   route: { params: { team: Team } };
 };
 
+function pad2(n: number) {
+  return String(n).padStart(2, '0');
+}
+
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return h > 0 ? `${pad2(h)}:${pad2(m)}:${pad2(s)}` : `${pad2(m)}:${pad2(s)}`;
+}
+
 export function ShiftCheckInScreen({ route }: Props) {
+  const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const { team: teamFromParams } = route.params;
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const userId = user?.id ?? '';
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ headerShown: false });
+  }, [navigation]);
+
   const { data: myTeams = [] } = useQuery({
     queryKey: ['my-teams', userId],
     queryFn: () => {
@@ -43,7 +79,6 @@ export function ShiftCheckInScreen({ route }: Props) {
     requestPermissionAndGetLocation,
     loadLocationForDisplay,
     distanceToStore,
-    isWithinRadius,
   } = useLocation();
 
   const [activeLog, setActiveLog] = useState<{ id: string; check_in_time: string } | null>(null);
@@ -78,21 +113,18 @@ export function ShiftCheckInScreen({ route }: Props) {
     team.store_longitude != null &&
     team.store_radius != null;
   const radius = team.store_radius ?? 100;
-  const distance = hasStoreLocation && location
-    ? distanceToStore(team.store_latitude!, team.store_longitude!)
-    : null;
-  const canCheckIn =
-    hasStoreLocation &&
-    location &&
-    distance !== null &&
-    distance <= radius;
+  const distance =
+    hasStoreLocation && location
+      ? distanceToStore(team.store_latitude!, team.store_longitude!)
+      : null;
+  const canCheckIn = hasStoreLocation && location && distance !== null && distance <= radius;
 
   useEffect(() => {
     if (!user) return;
     getActiveShiftLog(user.id, team.id).then(setActiveLog);
   }, [user?.id, team.id]);
 
-  /** Ekran açıldığında önce önbelleğe alınmış konumu kullan (anında), sonra arka planda taze konum al; tekrar girişte uzun bekletmez */
+  /** Ekran açıldığında önce önbelleğe alınmış konumu kullan (anında), sonra arka planda taze konum al */
   useEffect(() => {
     if (!hasStoreLocation) return;
     loadLocationForDisplay();
@@ -106,14 +138,14 @@ export function ShiftCheckInScreen({ route }: Props) {
       if (!coords) return;
       const d = distanceToStore(team.store_latitude!, team.store_longitude!);
       if (d === null || d > radius) {
-        Alert.alert('Uzak', `Mağaza ${Math.round(d ?? 0)} m uzakta. En fazla ${radius} m olmalı.`);
+        themedAlert('Uzak', `Mağaza ${Math.round(d ?? 0)} m uzakta. En fazla ${radius} m olmalı.`);
         return;
       }
       await checkIn(user.id, team.id, coords.lat, coords.lng);
       const log = await getActiveShiftLog(user.id, team.id);
       setActiveLog(log ?? null);
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Vardiya başlatılamadı.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Vardiya başlatılamadı.');
     } finally {
       setActionLoading(false);
     }
@@ -121,28 +153,37 @@ export function ShiftCheckInScreen({ route }: Props) {
 
   const handleEndShift = async () => {
     if (!activeLog) return;
-    setActionLoading(true);
-    try {
-      await checkOut(activeLog.id);
-      setActiveLog(null);
-    } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Vardiya bitirilemedi.');
-    } finally {
-      setActionLoading(false);
-    }
+    themedAlert('Vardiyayı bitir?', 'Vardiyanı şimdi kapatmak istediğine emin misin?', [
+      { text: 'Vazgeç', style: 'cancel' },
+      {
+        text: 'Bitir',
+        style: 'destructive',
+        onPress: async () => {
+          setActionLoading(true);
+          try {
+            await checkOut(activeLog.id);
+            setActiveLog(null);
+          } catch (e) {
+            themedAlert('Hata', e instanceof Error ? e.message : 'Vardiya bitirilemedi.');
+          } finally {
+            setActionLoading(false);
+          }
+        },
+      },
+    ]);
   };
 
   const handleStartBreak = async (template: { id: string; duration_minutes: number }) => {
     if (!user) {
-      Alert.alert('Uyarı', 'Lütfen önce giriş yapın.');
+      themedAlert('Uyarı', 'Lütfen önce giriş yapın.');
       return;
     }
     if (!activeLog) {
-      Alert.alert('Uyarı', 'Mola başlatmak için önce vardiya başlatın.');
+      themedAlert('Uyarı', 'Mola başlatmak için önce vardiya başlatın.');
       return;
     }
     if (myActiveBreak) {
-      Alert.alert('Uyarı', 'Zaten aktif bir molanız var.');
+      themedAlert('Uyarı', 'Zaten aktif bir molanız var.');
       return;
     }
     setBreakActionLoading(true);
@@ -165,7 +206,6 @@ export function ShiftCheckInScreen({ route }: Props) {
       const now = new Date();
       const ids: string[] = [];
 
-      // Son 1 dk uyarısı (mola süresi 1 dk'dan uzunsa ve zaman geçmiş değilse)
       if (oneMinuteLeftDate.getTime() > now.getTime()) {
         const oneMinuteId = await Notifications.scheduleNotificationAsync({
           content: {
@@ -191,7 +231,7 @@ export function ShiftCheckInScreen({ route }: Props) {
       ids.push(endId);
       setScheduledBreakNotifIds(ids);
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Mola başlatılamadı.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Mola başlatılamadı.');
     } finally {
       setBreakActionLoading(false);
     }
@@ -229,702 +269,1367 @@ export function ShiftCheckInScreen({ route }: Props) {
       setScheduledBreakNotifIds([]);
       await refetchMyActiveBreak();
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Mola bitirilemedi.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Mola bitirilemedi.');
     } finally {
       setBreakActionLoading(false);
     }
   };
 
-  const formatBreakRemaining = (plannedEndAt: string): string => {
+  const getBreakTimingState = (
+    plannedEndAt: string
+  ): { isOver: boolean; value: string; label: string } => {
     const diffMs = new Date(plannedEndAt).getTime() - clockTick;
     const abs = Math.abs(Math.floor(diffMs / 1000));
     const mins = Math.floor(abs / 60);
     const secs = abs % 60;
-    const label = `${mins}:${String(secs).padStart(2, '0')}`;
-    return diffMs >= 0 ? label : `+${label}`;
-  };
-
-  const getBreakTimingState = (plannedEndAt: string): { isOver: boolean; value: string; label: string } => {
-    const diffMs = new Date(plannedEndAt).getTime() - clockTick;
-    const abs = Math.abs(Math.floor(diffMs / 1000));
-    const mins = Math.floor(abs / 60);
-    const secs = abs % 60;
-    const value = `${mins}:${String(secs).padStart(2, '0')}`;
+    const value = `${mins}:${pad2(secs)}`;
     if (diffMs >= 0) {
       return { isOver: false, value, label: 'Kalan süre' };
     }
     return { isOver: true, value: `+${value}`, label: `Mola ${value} aşıldı` };
   };
 
-  if (!hasStoreLocation) {
-    return (
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        <Card style={styles.card}>
-          <View style={styles.emptyState}>
-            <Ionicons name="location-outline" size={48} color={colors.textMuted} />
-            <Text style={styles.emptyTitle}>Konum tanımlı değil</Text>
-            <Text style={styles.emptyMessage}>
-              Bu takım için mağaza konumu henüz ayarlanmamış. Yöneticiniz Vardiya Konum Yönetimi üzerinden konum ve yarıçap belirleyebilir.
-            </Text>
-          </View>
-        </Card>
-      </ScrollView>
-    );
-  }
-
   const distanceRounded = distance !== null ? Math.round(distance) : null;
   const withinRadius = distance !== null && distance <= radius;
 
-  return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="handled"
-    >
-      {/* Mesafe / durum kartı */}
-      <Card style={styles.card}>
-        <View style={styles.distanceSection}>
-          {locationError ? (
-            <View style={styles.statusRow}>
-              <Ionicons name="warning-outline" size={24} color={colors.error} />
-              <Text style={styles.errorText}>{locationError}</Text>
-            </View>
-          ) : locationLoading ? (
-            <View style={styles.statusRow}>
-              <Ionicons name="locate-outline" size={28} color={colors.textMuted} />
-              <Text style={styles.distanceLabel}>Konum alınıyor…</Text>
-            </View>
-          ) : location && distanceRounded !== null ? (
-            <>
-              <View style={[styles.distanceBadge, withinRadius && styles.distanceBadgeOk]}>
-                <Text style={[styles.distanceValue, withinRadius && styles.distanceValueOk]}>
-                  {distanceRounded}
-                </Text>
-                <Text style={styles.distanceUnit}>m</Text>
-              </View>
-              <Text style={styles.distanceLabel}>
-                Mağazaya uzaklık
-              </Text>
-              <Text style={[styles.distanceHint, withinRadius ? styles.distanceHintOk : styles.distanceHintFar]}>
-                {withinRadius
-                  ? 'Vardiya başlatabilirsiniz'
-                  : `Maksimum ${radius} m içinde olmalısınız`}
-              </Text>
-            </>
-          ) : !locationLoading && !locationError ? (
-            <Text style={styles.distanceLabel}>Konum bilgisi gerekli</Text>
-          ) : null}
-        </View>
-      </Card>
+  // Vardiya süresi (canlı)
+  const shiftElapsedMs = activeLog
+    ? Math.max(0, clockTick - new Date(activeLog.check_in_time).getTime())
+    : 0;
 
-      {/* Vardiya başlat / bitir */}
-      <Card style={[styles.card, styles.actionCard]}>
-        {activeLog ? (
-          <>
-            <View style={styles.activeHeader}>
-              <View style={styles.activeDot} />
-              <Text style={styles.activeTitle}>Vardiya devam ediyor</Text>
+  // Konum tanımlı değilse erken dönüş (hero yine de gözüksün)
+  if (!hasStoreLocation) {
+    return (
+      <View style={styles.container}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: tabScrollBottomPad + spacing.xl },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          <Hero
+            insets={insets}
+            onBack={() => navigation.goBack()}
+            teamName={team.name}
+            statusActive={false}
+            statusText="Konum ayarlı değil"
+            elapsedText={null}
+          />
+          <View style={styles.body}>
+            <View style={styles.panel}>
+              <View style={styles.panelGoldCap} />
+              <LinearGradient
+                colors={['rgba(212, 175, 55, 0.06)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.panelBody}>
+                <View style={styles.emptyIconWrap}>
+                  <Ionicons name="location-outline" size={28} color={colors.accent} />
+                </View>
+                <Text style={styles.emptyTitle}>Mağaza konumu tanımlı değil</Text>
+                <Text style={styles.emptyMessage}>
+                  Bu ekip için mağaza konumu henüz ayarlanmamış. Yöneticiniz Vardiya Konum
+                  Yönetimi üzerinden konum ve yarıçap belirleyebilir.
+                </Text>
+              </View>
             </View>
-            <Text style={styles.activeTime}>
-              Başlangıç: {new Date(activeLog.check_in_time).toLocaleString('tr-TR', {
-                day: 'numeric',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit',
-              })}
-            </Text>
-            <Pressable
-              onPress={handleEndShift}
-              disabled={actionLoading}
-              style={({ pressed }) => [
-                styles.actionBtn,
-                styles.actionBtnEnd,
-                pressed && !actionLoading && styles.actionBtnPressed,
-                actionLoading && styles.actionBtnDisabled,
-              ]}
-            >
-              <Ionicons name="stop-circle-outline" size={22} color={colors.accent} />
-              <Text style={styles.actionBtnTextEnd}>
-                {actionLoading ? 'İşleniyor…' : 'Vardiyayı Bitir'}
-              </Text>
-            </Pressable>
-          </>
-        ) : (
-          <Pressable
-            onPress={handleStartShift}
-            disabled={!canCheckIn || actionLoading || locationLoading}
-            style={({ pressed }) => [
-              styles.actionBtn,
-              canCheckIn ? styles.actionBtnStart : styles.actionBtnDisabled,
-              pressed && canCheckIn && !actionLoading && !locationLoading && styles.actionBtnPressed,
-              (!canCheckIn || actionLoading || locationLoading) && styles.actionBtnDisabled,
-            ]}
-          >
-            {actionLoading || locationLoading ? (
-              <Text style={styles.actionBtnTextStart}>
-                {locationLoading ? 'Konum alınıyor…' : 'Başlatılıyor…'}
-              </Text>
-            ) : (
-              <>
-                <Ionicons
-                  name="play-circle"
-                  size={24}
-                  color={canCheckIn ? colors.black : colors.textMuted}
-                />
-                <Text
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingBottom: tabScrollBottomPad + spacing.xl },
+        ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Hero
+          insets={insets}
+          onBack={() => navigation.goBack()}
+          teamName={team.name}
+          statusActive={!!activeLog}
+          statusText={activeLog ? 'Aktif vardiya' : 'Vardiya başlatılmadı'}
+          elapsedText={activeLog ? formatElapsed(shiftElapsedMs) : null}
+        />
+
+        <View style={styles.body}>
+          {/* Mesafe / durum paneli */}
+          <View style={styles.panel}>
+            <View style={styles.panelGoldCap} />
+            <LinearGradient
+              colors={['rgba(212, 175, 55, 0.06)', 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.panelBody}>
+              <View style={styles.panelHeaderRow}>
+                <View style={styles.panelIconWrap}>
+                  <Ionicons name="location-outline" size={16} color={colors.accent} />
+                </View>
+                <Text style={styles.panelTitle}>Mağazaya yakınlık</Text>
+                <View
                   style={[
-                    styles.actionBtnTextStart,
-                    !canCheckIn && styles.actionBtnTextDisabled,
+                    styles.panelBadge,
+                    withinRadius ? styles.panelBadgeOk : styles.panelBadgeWarn,
                   ]}
                 >
-                  Vardiya Başlat
-                </Text>
-              </>
-            )}
-          </Pressable>
-        )}
-      </Card>
-      <Card style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <Ionicons name="cafe-outline" size={18} color={colors.accent} />
-          <Text style={styles.activeTitle}>Molalar</Text>
-        </View>
-        {!activeLog ? (
-          <View style={styles.breakLockCard}>
-            <View style={styles.breakLockIconWrap}>
-              <Ionicons name="lock-closed-outline" size={18} color={colors.accent} />
-            </View>
-            <View style={styles.breakLockMain}>
-              <Text style={styles.breakLockTitle}>Mola alanı kilitli</Text>
-              <Text style={styles.breakLockText}>
-                Molaları kullanabilmek için önce vardiya başlatmanız gerekir.
-              </Text>
-            </View>
-          </View>
-        ) : myActiveBreak ? (
-          <>
-            {(() => {
-              const state = getBreakTimingState(myActiveBreak.planned_end_at);
-              return (
-                <View style={[styles.activeBreakHero, state.isOver && styles.activeBreakHeroOver]}>
-                  <View style={styles.activeBreakHeroTop}>
-                    <Text style={styles.activeBreakHeroTitle}>Aktif mola</Text>
-                    <View style={[styles.breakDurationBadge, styles.breakDurationBadgeHero]}>
-                      <Text style={styles.breakDurationText}>{myActiveBreak.template?.duration_minutes ?? 0} dk</Text>
-                    </View>
-                  </View>
-                  <Text style={styles.activeBreakHeroName}>{myActiveBreak.template?.name ?? 'Mola'}</Text>
-                  <View style={styles.activeBreakHeroTimerRow}>
-                    <Ionicons
-                      name={state.isOver ? 'warning-outline' : 'hourglass-outline'}
-                      size={18}
-                      color={state.isOver ? colors.error : colors.accent}
-                    />
-                    <Text style={[styles.activeBreakHeroTimer, state.isOver && styles.activeBreakHeroTimerOver]}>
-                      {state.value}
-                    </Text>
-                    <Text style={[styles.activeBreakHeroTimerLabel, state.isOver && styles.activeBreakHeroTimerLabelOver]}>
-                      {state.isOver ? 'asildi' : 'kaldi'}
-                    </Text>
-                  </View>
-                  {state.isOver ? (
-                    <Text style={styles.activeBreakHeroOverrun}>{state.label}</Text>
-                  ) : null}
-                </View>
-              );
-            })()}
-            <Pressable
-              onPress={handleEndBreak}
-              disabled={breakActionLoading}
-              style={({ pressed }) => [
-                styles.endBreakBtn,
-                pressed && !breakActionLoading && styles.actionBtnPressed,
-                breakActionLoading && styles.actionBtnDisabled,
-              ]}
-            >
-              <Ionicons name="stop-circle-outline" size={20} color={colors.black} />
-              <Text style={styles.endBreakBtnText}>{breakActionLoading ? 'İşleniyor…' : 'Molayı Bitir'}</Text>
-            </Pressable>
-          </>
-        ) : breakTemplates.length === 0 ? (
-          <View style={styles.breakInfoBanner}>
-            <Ionicons name="information-circle-outline" size={18} color={colors.textSecondary} />
-            <Text style={styles.breakInfoText}>Bu ekip için tanımlı mola yok.</Text>
-          </View>
-        ) : (
-          <View style={styles.breakTemplatesWrap}>
-            {breakTemplates.map((template) => (
-              <Pressable
-                key={template.id}
-                onPress={() => {
-                  Alert.alert(
-                    'Mola başlatılsın mı?',
-                    `${template.name} · ${template.duration_minutes} dk`,
-                    [
-                      { text: 'İptal', style: 'cancel' },
-                      {
-                        text: 'Başlat',
-                        onPress: () => handleStartBreak(template),
-                      },
-                    ]
-                  );
-                }}
-                disabled={breakActionLoading}
-                style={({ pressed }) => [
-                  styles.breakTemplateCard,
-                  pressed && styles.actionBtnPressed,
-                ]}
-              >
-                <View style={styles.breakTemplateTop}>
-                  <Ionicons name="cafe-outline" size={18} color={colors.accent} />
-                  <View style={styles.breakDurationBadge}>
-                    <Text style={styles.breakDurationText}>{template.duration_minutes} dk</Text>
-                  </View>
-                </View>
-                <Text style={styles.breakTemplateText}>{template.name}</Text>
-                <Text style={styles.breakTemplateHint}>Dokun ve molayı başlat</Text>
-              </Pressable>
-            ))}
-          </View>
-        )}
-      </Card>
-      <Card style={styles.card}>
-        <View style={styles.sectionHeader}>
-          <Ionicons name="people-outline" size={18} color={colors.accent} />
-          <Text style={styles.activeTitle}>Molada olanlar</Text>
-        </View>
-        {teamActiveBreaks.length === 0 ? (
-          <View style={styles.emptyBreaksCard}>
-            <View style={styles.emptyBreaksIconWrap}>
-              <Ionicons name="moon-outline" size={20} color={colors.textSecondary} />
-            </View>
-            <View style={styles.emptyBreaksMain}>
-              <Text style={styles.emptyBreaksTitle}>Molada kimse yok</Text>
-              <Text style={styles.emptyBreaksText}>
-                Ekip üyeleri mola başlattığında burada canlı olarak görünecek.
-              </Text>
-            </View>
-          </View>
-        ) : (
-          teamActiveBreaks.map((b) => {
-            const name = b.user ? `${b.user.name ?? ''} ${b.user.surname ?? ''}`.trim() || 'Üye' : 'Üye';
-            const state = getBreakTimingState(b.planned_end_at);
-            return (
-              <View key={b.id} style={[styles.activeBreakRow, state.isOver && styles.activeBreakRowOver]}>
-                <View style={styles.activeBreakLeft}>
-                  <Avatar
-                    source={b.user?.profile_photo ?? null}
-                    name={name}
-                    size={40}
-                    style={[styles.activeBreakAvatar, state.isOver && styles.activeBreakAvatarOver]}
+                  <View
+                    style={[
+                      styles.panelBadgeDot,
+                      withinRadius ? styles.panelBadgeDotOk : styles.panelBadgeDotWarn,
+                    ]}
                   />
-                  <View style={styles.activeBreakRowMain}>
-                    <Text style={styles.activeBreakName} numberOfLines={1}>{name}</Text>
-                    <View style={styles.activeBreakMetaRow}>
-                      <View style={styles.activeBreakNamePill}>
-                        <Ionicons name="cafe-outline" size={12} color={colors.accent} />
-                        <Text style={styles.activeBreakNamePillText}>{b.template?.name ?? 'Mola'}</Text>
-                      </View>
-                      <View style={styles.activeBreakDurationPill}>
-                        <Text style={styles.activeBreakDurationPillText}>{b.template?.duration_minutes ?? '-'} dk</Text>
-                      </View>
-                    </View>
-                    {state.isOver ? <Text style={styles.activeBreakOverrun}>Planlanan süre aşıldı</Text> : null}
-                  </View>
-                </View>
-                <View style={[styles.activeBreakTimeCard, state.isOver && styles.activeBreakTimeCardOver]}>
-                  <Text style={[styles.activeBreakTimeLabel, state.isOver && styles.activeBreakTimeLabelOver]}>
-                    {state.isOver ? 'Asim' : 'Kalan'}
+                  <Text
+                    style={[
+                      styles.panelBadgeText,
+                      withinRadius ? styles.panelBadgeTextOk : styles.panelBadgeTextWarn,
+                    ]}
+                  >
+                    {withinRadius ? 'Alan içinde' : 'Alan dışında'}
                   </Text>
-                  <Text style={[styles.activeBreakTimeValue, state.isOver && styles.activeBreakTimeValueOver]}>{state.value}</Text>
                 </View>
               </View>
-            );
-          })
-        )}
-      </Card>
-    </ScrollView>
+
+              {locationError ? (
+                <View style={styles.distanceErrorRow}>
+                  <Ionicons name="warning-outline" size={18} color={colors.error} />
+                  <Text style={styles.distanceErrorText}>{locationError}</Text>
+                </View>
+              ) : locationLoading && distanceRounded === null ? (
+                <View style={styles.distanceLoadingRow}>
+                  <Ionicons name="locate-outline" size={18} color={colors.textMuted} />
+                  <Text style={styles.distanceLoadingText}>Konum alınıyor…</Text>
+                </View>
+              ) : distanceRounded !== null ? (
+                <>
+                  <View style={styles.distanceValueRow}>
+                    <Text
+                      style={[
+                        styles.distanceValue,
+                        withinRadius && styles.distanceValueOk,
+                      ]}
+                    >
+                      {distanceRounded}
+                    </Text>
+                    <Text style={styles.distanceUnit}>m</Text>
+                    <Text style={styles.distanceOf}> / {radius} m</Text>
+                  </View>
+
+                  {/* İlerleme çubuğu — mesafe / yarıçap oranı */}
+                  <View style={styles.progressTrack}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        withinRadius
+                          ? styles.progressFillOk
+                          : styles.progressFillWarn,
+                        {
+                          width: `${Math.min(
+                            100,
+                            Math.round((distanceRounded / radius) * 100)
+                          )}%`,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.distanceHint,
+                      withinRadius ? styles.distanceHintOk : styles.distanceHintFar,
+                    ]}
+                  >
+                    {withinRadius
+                      ? 'Vardiya başlatabilirsiniz'
+                      : `En fazla ${radius} m içinde olmalısınız`}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.distanceLoadingText}>Konum bilgisi gerekli</Text>
+              )}
+            </View>
+          </View>
+
+          {/* Vardiya aksiyon paneli */}
+          {activeLog ? (
+            <View style={[styles.panel, styles.panelActive]}>
+              <View style={styles.panelGoldCap} />
+              <LinearGradient
+                colors={['rgba(45, 106, 79, 0.14)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.panelBody}>
+                <View style={styles.panelHeaderRow}>
+                  <View style={styles.liveDotWrap}>
+                    <View style={styles.liveDotRing} />
+                    <View style={styles.liveDot} />
+                  </View>
+                  <Text style={styles.panelTitle}>Vardiya devam ediyor</Text>
+                </View>
+
+                <View style={styles.elapsedRow}>
+                  <Text style={styles.elapsedValue}>{formatElapsed(shiftElapsedMs)}</Text>
+                  <Text style={styles.elapsedLabel}>çalışma süresi</Text>
+                </View>
+
+                <View style={styles.metaRow}>
+                  <Ionicons name="time-outline" size={14} color={colors.textMuted} />
+                  <Text style={styles.metaText}>
+                    Başlangıç:{' '}
+                    {new Date(activeLog.check_in_time).toLocaleString('tr-TR', {
+                      day: 'numeric',
+                      month: 'short',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={handleEndShift}
+                  disabled={actionLoading}
+                  style={({ pressed }) => [
+                    styles.ctaEnd,
+                    pressed && !actionLoading && styles.ctaPressed,
+                    actionLoading && styles.ctaDisabled,
+                  ]}
+                >
+                  <Ionicons name="stop-circle-outline" size={22} color={colors.accent} />
+                  <Text style={styles.ctaEndText}>
+                    {actionLoading ? 'İşleniyor…' : 'Vardiyayı Bitir'}
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.panel}>
+              <View style={styles.panelGoldCap} />
+              <LinearGradient
+                colors={['rgba(212, 175, 55, 0.10)', 'transparent']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 0, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <View style={styles.panelBody}>
+                <View style={styles.panelHeaderRow}>
+                  <View style={styles.panelIconWrap}>
+                    <Ionicons name="play-circle-outline" size={16} color={colors.accent} />
+                  </View>
+                  <Text style={styles.panelTitle}>Vardiyayı başlat</Text>
+                </View>
+                <Text style={styles.panelDescription}>
+                  Giriş yapmak için mağaza alanının içinde olmalısın. Konum doğrulandıktan sonra
+                  aşağıdaki butonla vardiyanı başlatabilirsin.
+                </Text>
+                <Pressable
+                  onPress={handleStartShift}
+                  disabled={!canCheckIn || actionLoading || locationLoading}
+                  style={({ pressed }) => [
+                    styles.ctaStartWrap,
+                    pressed &&
+                      canCheckIn &&
+                      !actionLoading &&
+                      !locationLoading &&
+                      styles.ctaPressed,
+                    (!canCheckIn || actionLoading || locationLoading) && styles.ctaDisabled,
+                  ]}
+                >
+                  <LinearGradient
+                    colors={
+                      canCheckIn
+                        ? [colors.accentHover, colors.accent]
+                        : ['rgba(255,255,255,0.08)', 'rgba(255,255,255,0.04)']
+                    }
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.ctaStart}
+                  >
+                    {actionLoading || locationLoading ? (
+                      <Text
+                        style={[
+                          styles.ctaStartText,
+                          !canCheckIn && styles.ctaStartTextDisabled,
+                        ]}
+                      >
+                        {locationLoading ? 'Konum alınıyor…' : 'Başlatılıyor…'}
+                      </Text>
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="play-circle"
+                          size={22}
+                          color={canCheckIn ? colors.black : colors.textMuted}
+                        />
+                        <Text
+                          style={[
+                            styles.ctaStartText,
+                            !canCheckIn && styles.ctaStartTextDisabled,
+                          ]}
+                        >
+                          Vardiya Başlat
+                        </Text>
+                      </>
+                    )}
+                  </LinearGradient>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
+          {/* Molalar */}
+          <View style={styles.panel}>
+            <View style={styles.panelGoldCap} />
+            <LinearGradient
+              colors={['rgba(212, 175, 55, 0.06)', 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.panelBody}>
+              <View style={styles.panelHeaderRow}>
+                <View style={styles.panelIconWrap}>
+                  <Ionicons name="cafe-outline" size={16} color={colors.accent} />
+                </View>
+                <Text style={styles.panelTitle}>Molalar</Text>
+              </View>
+
+              {!activeLog ? (
+                <View style={styles.lockCard}>
+                  <View style={styles.lockIconWrap}>
+                    <Ionicons name="lock-closed-outline" size={16} color={colors.accent} />
+                  </View>
+                  <View style={styles.lockMain}>
+                    <Text style={styles.lockTitle}>Mola alanı kilitli</Text>
+                    <Text style={styles.lockText}>
+                      Molaları kullanabilmek için önce vardiya başlatmanız gerekir.
+                    </Text>
+                  </View>
+                </View>
+              ) : myActiveBreak ? (
+                <>
+                  {(() => {
+                    const state = getBreakTimingState(myActiveBreak.planned_end_at);
+                    return (
+                      <View
+                        style={[
+                          styles.activeBreakHero,
+                          state.isOver && styles.activeBreakHeroOver,
+                        ]}
+                      >
+                        <LinearGradient
+                          colors={
+                            state.isOver
+                              ? ['rgba(239, 68, 68, 0.18)', 'rgba(239, 68, 68, 0.04)']
+                              : ['rgba(212, 175, 55, 0.18)', 'rgba(212, 175, 55, 0.04)']
+                          }
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={StyleSheet.absoluteFill}
+                        />
+                        <View style={styles.activeBreakTopRow}>
+                          <View style={styles.activeBreakLabelWrap}>
+                            <View
+                              style={[
+                                styles.activeBreakLiveDotRing,
+                                state.isOver && styles.activeBreakLiveDotRingOver,
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.activeBreakLiveDot,
+                                state.isOver && styles.activeBreakLiveDotOver,
+                              ]}
+                            />
+                            <Text
+                              style={[
+                                styles.activeBreakEyebrow,
+                                state.isOver && styles.activeBreakEyebrowOver,
+                              ]}
+                            >
+                              {state.isOver ? 'SÜRE AŞIMI' : 'AKTİF MOLA'}
+                            </Text>
+                          </View>
+                          <View style={styles.durationChip}>
+                            <Text style={styles.durationChipText}>
+                              {myActiveBreak.template?.duration_minutes ?? 0} dk
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.activeBreakName}>
+                          {myActiveBreak.template?.name ?? 'Mola'}
+                        </Text>
+                        <View style={styles.timerRow}>
+                          <Text
+                            style={[
+                              styles.timerValue,
+                              state.isOver && styles.timerValueOver,
+                            ]}
+                          >
+                            {state.value}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.timerUnit,
+                              state.isOver && styles.timerUnitOver,
+                            ]}
+                          >
+                            {state.isOver ? 'aşıldı' : 'kaldı'}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
+                  <Pressable
+                    onPress={handleEndBreak}
+                    disabled={breakActionLoading}
+                    style={({ pressed }) => [
+                      styles.ctaStartWrap,
+                      pressed && !breakActionLoading && styles.ctaPressed,
+                      breakActionLoading && styles.ctaDisabled,
+                    ]}
+                  >
+                    <LinearGradient
+                      colors={[colors.accentHover, colors.accent]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.ctaStart}
+                    >
+                      <Ionicons name="stop-circle-outline" size={20} color={colors.black} />
+                      <Text style={styles.ctaStartText}>
+                        {breakActionLoading ? 'İşleniyor…' : 'Molayı Bitir'}
+                      </Text>
+                    </LinearGradient>
+                  </Pressable>
+                </>
+              ) : breakTemplates.length === 0 ? (
+                <View style={styles.emptyMini}>
+                  <Ionicons name="information-circle-outline" size={16} color={colors.textSecondary} />
+                  <Text style={styles.emptyMiniText}>
+                    Bu ekip için tanımlı mola yok.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.breakTemplatesGrid}>
+                  {breakTemplates.map((template) => (
+                    <Pressable
+                      key={template.id}
+                      onPress={() => {
+                        themedAlert(
+                          'Mola başlatılsın mı?',
+                          `${template.name} · ${template.duration_minutes} dk`,
+                          [
+                            { text: 'İptal', style: 'cancel' },
+                            {
+                              text: 'Başlat',
+                              onPress: () => handleStartBreak(template),
+                            },
+                          ]
+                        );
+                      }}
+                      disabled={breakActionLoading}
+                      style={({ pressed }) => [
+                        styles.breakTemplateCard,
+                        pressed && styles.ctaPressed,
+                      ]}
+                    >
+                      <LinearGradient
+                        colors={['rgba(212, 175, 55, 0.14)', 'rgba(212, 175, 55, 0.04)']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFill}
+                      />
+                      <View style={styles.breakTemplateTop}>
+                        <View style={styles.breakTemplateIconWrap}>
+                          <Ionicons name="cafe-outline" size={16} color={colors.accent} />
+                        </View>
+                        <View style={styles.durationChip}>
+                          <Text style={styles.durationChipText}>
+                            {template.duration_minutes} dk
+                          </Text>
+                        </View>
+                      </View>
+                      <Text style={styles.breakTemplateName} numberOfLines={2}>
+                        {template.name}
+                      </Text>
+                      <View style={styles.breakTemplateHintRow}>
+                        <Text style={styles.breakTemplateHint}>Başlatmak için dokun</Text>
+                        <Ionicons name="arrow-forward" size={14} color={colors.accent} />
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Ekipte molada olanlar */}
+          <View style={styles.panel}>
+            <View style={styles.panelGoldCap} />
+            <LinearGradient
+              colors={['rgba(212, 175, 55, 0.06)', 'transparent']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.panelBody}>
+              <View style={styles.panelHeaderRow}>
+                <View style={styles.panelIconWrap}>
+                  <Ionicons name="people-outline" size={16} color={colors.accent} />
+                </View>
+                <Text style={styles.panelTitle}>Molada olanlar</Text>
+                {teamActiveBreaks.length > 0 && (
+                  <View style={styles.countChip}>
+                    <Text style={styles.countChipText}>{teamActiveBreaks.length}</Text>
+                  </View>
+                )}
+              </View>
+              {teamActiveBreaks.length === 0 ? (
+                <View style={styles.emptyMini}>
+                  <Ionicons name="moon-outline" size={16} color={colors.textSecondary} />
+                  <Text style={styles.emptyMiniText}>Molada kimse yok.</Text>
+                </View>
+              ) : (
+                <View style={{ gap: spacing.sm }}>
+                  {teamActiveBreaks.map((b) => {
+                    const name = b.user
+                      ? `${b.user.name ?? ''} ${b.user.surname ?? ''}`.trim() || 'Üye'
+                      : 'Üye';
+                    const state = getBreakTimingState(b.planned_end_at);
+                    return (
+                      <View
+                        key={b.id}
+                        style={[styles.teamBreakRow, state.isOver && styles.teamBreakRowOver]}
+                      >
+                        <View style={styles.teamBreakLeft}>
+                          <Avatar
+                            source={b.user?.profile_photo ?? null}
+                            name={name}
+                            size={40}
+                            style={[
+                              styles.teamBreakAvatar,
+                              state.isOver && styles.teamBreakAvatarOver,
+                            ]}
+                          />
+                          <View style={styles.teamBreakMain}>
+                            <Text style={styles.teamBreakName} numberOfLines={1}>
+                              {name}
+                            </Text>
+                            <View style={styles.teamBreakMetaRow}>
+                              <View style={styles.teamBreakNameChip}>
+                                <Ionicons
+                                  name="cafe-outline"
+                                  size={11}
+                                  color={colors.accent}
+                                />
+                                <Text style={styles.teamBreakNameChipText}>
+                                  {b.template?.name ?? 'Mola'}
+                                </Text>
+                              </View>
+                              <View style={styles.teamBreakDurChip}>
+                                <Text style={styles.teamBreakDurChipText}>
+                                  {b.template?.duration_minutes ?? '-'} dk
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                        <View
+                          style={[
+                            styles.teamBreakTimeCard,
+                            state.isOver && styles.teamBreakTimeCardOver,
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.teamBreakTimeLabel,
+                              state.isOver && styles.teamBreakTimeLabelOver,
+                            ]}
+                          >
+                            {state.isOver ? 'AŞIM' : 'KALAN'}
+                          </Text>
+                          <Text
+                            style={[
+                              styles.teamBreakTimeValue,
+                              state.isOver && styles.teamBreakTimeValueOver,
+                            ]}
+                          >
+                            {state.value}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+type HeroProps = {
+  insets: { top: number };
+  onBack: () => void;
+  teamName: string;
+  statusActive: boolean;
+  statusText: string;
+  elapsedText: string | null;
+};
+
+function Hero({ insets, onBack, teamName, statusActive, statusText, elapsedText }: HeroProps) {
+  return (
+    <LinearGradient
+      colors={[
+        'rgba(212, 175, 55, 0.22)',
+        'rgba(212, 175, 55, 0.06)',
+        'rgba(0,0,0,0)',
+      ]}
+      locations={[0, 0.55, 1]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 0.9, y: 1 }}
+      style={[styles.hero, { paddingTop: insets.top + spacing.md }]}
+    >
+      <Pressable
+        onPress={onBack}
+        style={({ pressed }) => [styles.backPill, pressed && styles.backPillPressed]}
+        hitSlop={8}
+        accessibilityLabel="Geri"
+      >
+        <Ionicons name="chevron-back" size={16} color={colors.textSecondary} />
+        <Text style={styles.backPillText}>Geri</Text>
+      </Pressable>
+      <Text style={styles.heroEyebrow}>Vardiya ve mola</Text>
+      <Text style={styles.heroTitle} numberOfLines={1}>
+        {teamName}
+      </Text>
+      <View
+        style={[
+          styles.heroStatusRow,
+          statusActive ? styles.heroStatusRowOn : styles.heroStatusRowOff,
+        ]}
+      >
+        <View
+          style={[
+            styles.heroStatusDot,
+            statusActive ? styles.heroStatusDotOn : styles.heroStatusDotOff,
+          ]}
+        />
+        <Text
+          style={[
+            styles.heroStatusText,
+            statusActive ? styles.heroStatusTextOn : styles.heroStatusTextOff,
+          ]}
+        >
+          {statusText}
+        </Text>
+        {elapsedText ? (
+          <>
+            <View style={styles.heroStatusDivider} />
+            <Ionicons name="time-outline" size={13} color={colors.accent} />
+            <Text style={styles.heroStatusElapsed}>{elapsedText}</Text>
+          </>
+        ) : null}
+      </View>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.lg, paddingBottom: spacing.xxl, flexGrow: 1 },
-  card: {
-    padding: spacing.lg,
-    borderRadius: 14,
+  container: { flex: 1, backgroundColor: colors.bgDark },
+  scrollContent: { paddingBottom: 0 },
+
+  // HERO
+  hero: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: borderRadius.lg,
+    borderBottomRightRadius: borderRadius.lg,
     marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
   },
-  emptyState: {
+  backPill: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.lg,
+    alignSelf: 'flex-start',
+    gap: 4,
+    paddingLeft: spacing.xs,
+    paddingRight: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    marginBottom: spacing.sm,
   },
-  emptyTitle: {
-    fontSize: 18,
+  backPillPressed: { opacity: 0.7 },
+  backPillText: {
+    fontSize: 13,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
+  heroEyebrow: {
+    fontSize: 11,
     fontFamily: fonts.semibold,
-    color: colors.textPrimary,
-    marginTop: spacing.md,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
     marginBottom: spacing.xs,
   },
-  emptyMessage: {
-    ...typography.body,
-    color: colors.textMuted,
-    textAlign: 'center',
-    lineHeight: 24,
+  heroTitle: {
+    fontSize: 26,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+    marginBottom: spacing.sm,
   },
-  distanceSection: {
+  heroStatusRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: spacing.sm,
+    alignSelf: 'flex-start',
+    gap: 6,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: borderRadius.full,
+    borderWidth: StyleSheet.hairlineWidth,
   },
-  statusRow: {
+  heroStatusRowOn: {
+    backgroundColor: 'rgba(45, 106, 79, 0.18)',
+    borderColor: 'rgba(45, 106, 79, 0.55)',
+  },
+  heroStatusRowOff: {
+    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(255,255,255,0.10)',
+  },
+  heroStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  heroStatusDotOn: { backgroundColor: '#34C759' },
+  heroStatusDotOff: { backgroundColor: colors.textMuted },
+  heroStatusText: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    letterSpacing: 0.2,
+  },
+  heroStatusTextOn: { color: '#D6F5E3' },
+  heroStatusTextOff: { color: colors.textSecondary },
+  heroStatusDivider: {
+    width: StyleSheet.hairlineWidth,
+    height: 12,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    marginHorizontal: 2,
+  },
+  heroStatusElapsed: {
+    fontSize: 12,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    letterSpacing: 0.3,
+  },
+
+  // BODY (layout wrapper)
+  body: {
+    paddingHorizontal: spacing.md,
+    gap: spacing.md,
+  },
+
+  // Panel (premium glass card)
+  panel: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    backgroundColor: colors.glassBg,
+    overflow: 'hidden',
+    ...shadow.md,
+  },
+  panelActive: {
+    borderColor: 'rgba(45, 106, 79, 0.55)',
+  },
+  panelGoldCap: {
+    height: 3,
+    backgroundColor: colors.accent,
+    opacity: 0.85,
+  },
+  panelBody: {
+    padding: spacing.md,
+  },
+  panelHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    marginBottom: spacing.md,
   },
-  errorText: {
+  panelIconWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 9,
+    backgroundColor: 'rgba(212, 175, 55, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.28)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  panelTitle: {
+    flex: 1,
     fontSize: 15,
-    color: colors.error,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    letterSpacing: -0.1,
   },
-  distanceBadge: {
+  panelDescription: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  panelBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: borderRadius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  panelBadgeOk: {
+    backgroundColor: 'rgba(45, 106, 79, 0.16)',
+    borderColor: 'rgba(45, 106, 79, 0.55)',
+  },
+  panelBadgeWarn: {
+    backgroundColor: 'rgba(233, 196, 106, 0.12)',
+    borderColor: 'rgba(233, 196, 106, 0.50)',
+  },
+  panelBadgeDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  panelBadgeDotOk: { backgroundColor: '#34C759' },
+  panelBadgeDotWarn: { backgroundColor: colors.warning },
+  panelBadgeText: {
+    fontSize: 10,
+    fontFamily: fonts.semibold,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  panelBadgeTextOk: { color: '#9FE7BA' },
+  panelBadgeTextWarn: { color: colors.warning },
+
+  // Distance block
+  distanceValueRow: {
     flexDirection: 'row',
     alignItems: 'baseline',
-    justifyContent: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    borderRadius: 12,
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    marginBottom: spacing.xs,
-  },
-  distanceBadgeOk: {
-    borderColor: colors.accent,
-    backgroundColor: colors.accent + '18',
+    marginBottom: spacing.sm,
   },
   distanceValue: {
-    fontSize: 36,
+    fontSize: 44,
     fontFamily: fonts.bold,
     color: colors.textPrimary,
+    letterSpacing: -1,
   },
-  distanceValueOk: {
-    color: colors.accent,
-  },
+  distanceValueOk: { color: colors.accent },
   distanceUnit: {
     fontSize: 18,
     fontFamily: fonts.semibold,
     color: colors.textSecondary,
-    marginLeft: 2,
+    marginLeft: 4,
   },
-  distanceLabel: {
-    fontSize: 14,
-    fontFamily: fonts.regular,
-    color: colors.textMuted,
-    marginBottom: spacing.xs,
-  },
-  distanceHint: {
+  distanceOf: {
     fontSize: 13,
     fontFamily: fonts.medium,
     color: colors.textMuted,
+    marginLeft: spacing.sm,
   },
-  distanceHintOk: {
-    color: colors.accent,
+  progressTrack: {
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    overflow: 'hidden',
+    marginBottom: spacing.sm,
   },
-  distanceHintFar: {
-    color: colors.warning,
+  progressFill: {
+    height: '100%',
+    borderRadius: 3,
   },
-  actionCard: {
-    marginTop: spacing.sm,
+  progressFillOk: { backgroundColor: colors.accent },
+  progressFillWarn: { backgroundColor: colors.warning },
+  distanceHint: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
   },
-  activeHeader: {
+  distanceHintOk: { color: '#9FE7BA' },
+  distanceHintFar: { color: colors.warning },
+  distanceErrorRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  distanceErrorText: {
+    flex: 1,
+    fontSize: 13,
+    color: colors.error,
+    fontFamily: fonts.medium,
+  },
+  distanceLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  distanceLoadingText: {
+    fontSize: 13,
+    color: colors.textMuted,
+    fontFamily: fonts.medium,
+  },
+
+  // Live shift elapsed
+  liveDotWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  liveDotRing: {
+    position: 'absolute',
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: 'rgba(52, 199, 89, 0.18)',
+  },
+  liveDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#34C759',
+  },
+  elapsedRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
     marginBottom: spacing.xs,
   },
-  activeDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.success,
+  elapsedValue: {
+    fontSize: 36,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    letterSpacing: -1,
   },
-  activeTitle: {
-    fontSize: 17,
-    fontFamily: fonts.semibold,
-    color: colors.textPrimary,
-  },
-  activeTime: {
-    fontSize: 14,
+  elapsedLabel: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
     color: colors.textMuted,
-    marginBottom: spacing.lg,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
-  activeTimeCompact: {
-    fontSize: 14,
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: spacing.md,
+  },
+  metaText: {
+    fontSize: 12,
+    fontFamily: fonts.medium,
     color: colors.textMuted,
-    marginBottom: spacing.sm,
   },
-  actionBtn: {
+
+  // CTA buttons
+  ctaStartWrap: {
+    borderRadius: borderRadius.full,
+    overflow: 'hidden',
+  },
+  ctaStart: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
     minHeight: 54,
-    paddingVertical: spacing.md,
     paddingHorizontal: spacing.lg,
-    borderRadius: 14,
   },
-  actionBtnStart: {
-    backgroundColor: colors.accent,
-  },
-  actionBtnEnd: {
-    backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.accent,
-  },
-  actionBtnPressed: { opacity: 0.88 },
-  actionBtnDisabled: { opacity: 0.5 },
-  actionBtnTextStart: {
-    fontSize: 17,
-    fontFamily: fonts.semibold,
+  ctaStartText: {
+    fontSize: 16,
+    fontFamily: fonts.bold,
     color: colors.black,
+    letterSpacing: 0.2,
   },
-  actionBtnTextEnd: {
-    fontSize: 17,
-    fontFamily: fonts.semibold,
-    color: colors.accent,
-  },
-  actionBtnTextDisabled: {
+  ctaStartTextDisabled: {
     color: colors.textMuted,
   },
-  breakTemplatesWrap: {
+  ctaEnd: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.sm,
-    paddingBottom: spacing.sm,
+    minHeight: 54,
+    paddingHorizontal: spacing.lg,
+    borderRadius: borderRadius.full,
+    borderWidth: 1.5,
+    borderColor: 'rgba(212, 175, 55, 0.55)',
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+  },
+  ctaEndText: {
+    fontSize: 16,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    letterSpacing: 0.2,
+  },
+  ctaPressed: { opacity: 0.88 },
+  ctaDisabled: { opacity: 0.5 },
+
+  // Break templates
+  breakTemplatesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: spacing.sm,
   },
   breakTemplateCard: {
     width: '48%',
     borderWidth: 1,
-    borderColor: colors.accent + '40',
+    borderColor: 'rgba(212, 175, 55, 0.32)',
     borderRadius: borderRadius.md,
     paddingVertical: spacing.sm + 2,
     paddingHorizontal: spacing.sm,
-    backgroundColor: colors.accent + '12',
+    overflow: 'hidden',
   },
-  breakTemplateTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.xs },
-  breakTemplateText: { fontSize: 14, color: colors.textPrimary, fontFamily: fonts.semibold },
-  breakTemplateHint: { fontSize: 11, color: colors.textSecondary, marginTop: 4 },
-  breakDurationBadge: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: colors.accent + '26',
-  },
-  breakDurationBadgeHero: { backgroundColor: colors.accent + '2E' },
-  breakDurationText: { fontSize: 12, color: colors.accent, fontFamily: fonts.semibold },
-  activeBreakRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    paddingVertical: spacing.md,
-    paddingHorizontal: 0,
+  breakTemplateTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: spacing.md,
+    marginBottom: spacing.xs,
   },
-  activeBreakRowOver: {
-    borderBottomColor: colors.error + '55',
+  breakTemplateIconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: 'rgba(212, 175, 55, 0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.32)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  activeBreakLeft: {
-    flex: 1,
-    minWidth: 0,
+  breakTemplateName: {
+    fontSize: 14,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    marginTop: 4,
+  },
+  breakTemplateHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    justifyContent: 'space-between',
+    marginTop: 6,
   },
-  activeBreakAvatar: {
-    borderWidth: 1,
-    borderColor: colors.accent + '38',
-  },
-  activeBreakAvatarOver: {
-    borderColor: colors.error + '66',
-  },
-  activeBreakRowMain: { flex: 1, minWidth: 0 },
-  activeBreakName: { fontSize: 15, fontFamily: fonts.semibold, color: colors.textPrimary },
-  activeBreakMetaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: spacing.xs,
-    flexWrap: 'wrap',
-  },
-  activeBreakNamePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: colors.accent + '44',
-    backgroundColor: colors.accent + '12',
-  },
-  activeBreakNamePillText: {
-    fontSize: 11,
-    color: colors.accent,
-    textTransform: 'capitalize',
-    fontFamily: fonts.medium,
-  },
-  activeBreakDurationPill: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-    borderRadius: borderRadius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-  },
-  activeBreakDurationPillText: {
+  breakTemplateHint: {
     fontSize: 11,
     color: colors.textSecondary,
     fontFamily: fonts.medium,
   },
-  activeBreakOverrun: { fontSize: 11, color: colors.error, marginTop: 6, fontFamily: fonts.medium },
-  activeBreakTimeCard: {
-    minWidth: 90,
+  durationChip: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(212, 175, 55, 0.18)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212, 175, 55, 0.40)',
+  },
+  durationChipText: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+    letterSpacing: 0.3,
+  },
+  countChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(212, 175, 55, 0.16)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+  },
+  countChipText: {
+    fontSize: 11,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+  },
+
+  // Active break hero
+  activeBreakHero: {
+    borderRadius: borderRadius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.45)',
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    overflow: 'hidden',
+  },
+  activeBreakHeroOver: {
+    borderColor: 'rgba(239, 68, 68, 0.55)',
+  },
+  activeBreakTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  activeBreakLabelWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  activeBreakLiveDotRing: {
+    position: 'absolute',
+    left: -3,
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    backgroundColor: 'rgba(212, 175, 55, 0.25)',
+  },
+  activeBreakLiveDotRingOver: {
+    backgroundColor: 'rgba(239, 68, 68, 0.28)',
+  },
+  activeBreakLiveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.accent,
+    marginRight: 2,
+  },
+  activeBreakLiveDotOver: {
+    backgroundColor: colors.error,
+  },
+  activeBreakEyebrow: {
+    fontSize: 10,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    letterSpacing: 1,
+  },
+  activeBreakEyebrowOver: {
+    color: colors.error,
+  },
+  activeBreakName: {
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    color: colors.textPrimary,
+    letterSpacing: -0.2,
+    marginBottom: spacing.sm,
+  },
+  timerRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.xs,
+  },
+  timerValue: {
+    fontSize: 40,
+    fontFamily: fonts.bold,
+    color: colors.accent,
+    letterSpacing: -1,
+  },
+  timerValueOver: {
+    color: colors.error,
+  },
+  timerUnit: {
+    fontSize: 12,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  timerUnitOver: {
+    color: colors.error,
+  },
+
+  // Empty / lock
+  lockCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.32)',
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  lockIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+    backgroundColor: 'rgba(212, 175, 55, 0.14)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockMain: { flex: 1, minWidth: 0 },
+  lockTitle: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    fontFamily: fonts.semibold,
+    marginBottom: 2,
+  },
+  lockText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  emptyMini: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+    borderRadius: borderRadius.md,
+    backgroundColor: 'rgba(255,255,255,0.02)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+  },
+  emptyMiniText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontFamily: fonts.medium,
+    flex: 1,
+  },
+  emptyIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(212, 175, 55, 0.10)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.28)',
+    alignSelf: 'center',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.md,
+  },
+  emptyTitle: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: spacing.xs,
+  },
+  emptyMessage: {
+    fontSize: 13,
+    fontFamily: fonts.regular,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+
+  // Team active breaks rows
+  teamBreakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: borderRadius.md,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(255,255,255,0.02)',
+  },
+  teamBreakRowOver: {
+    borderColor: 'rgba(239, 68, 68, 0.40)',
+    backgroundColor: 'rgba(239, 68, 68, 0.06)',
+  },
+  teamBreakLeft: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  teamBreakAvatar: {
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+  },
+  teamBreakAvatarOver: {
+    borderColor: 'rgba(239, 68, 68, 0.55)',
+  },
+  teamBreakMain: { flex: 1, minWidth: 0 },
+  teamBreakName: {
+    fontSize: 14,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+  },
+  teamBreakMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+    flexWrap: 'wrap',
+  },
+  teamBreakNameChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: borderRadius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(212, 175, 55, 0.35)',
+    backgroundColor: 'rgba(212, 175, 55, 0.10)',
+  },
+  teamBreakNameChipText: {
+    fontSize: 10,
+    fontFamily: fonts.semibold,
+    color: colors.accent,
+    letterSpacing: 0.3,
+  },
+  teamBreakDurChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: borderRadius.full,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.10)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  teamBreakDurChipText: {
+    fontSize: 10,
+    fontFamily: fonts.medium,
+    color: colors.textSecondary,
+  },
+  teamBreakTimeCard: {
+    minWidth: 74,
     flexShrink: 0,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: borderRadius.md,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs + 2,
+    paddingVertical: 6,
     borderWidth: 1,
-    borderColor: colors.accent + '55',
-    backgroundColor: colors.accent + '12',
+    borderColor: 'rgba(212, 175, 55, 0.45)',
+    backgroundColor: 'rgba(212, 175, 55, 0.10)',
   },
-  activeBreakTimeCardOver: { borderColor: colors.error + '66', backgroundColor: colors.error + '12' },
-  activeBreakTimeLabel: {
-    fontSize: 10,
+  teamBreakTimeCardOver: {
+    borderColor: 'rgba(239, 68, 68, 0.55)',
+    backgroundColor: 'rgba(239, 68, 68, 0.10)',
+  },
+  teamBreakTimeLabel: {
+    fontSize: 9,
+    fontFamily: fonts.bold,
     color: colors.accent,
-    fontFamily: fonts.medium,
-    textTransform: 'uppercase',
+    letterSpacing: 0.8,
     marginBottom: 2,
   },
-  activeBreakTimeLabelOver: { color: colors.error },
-  activeBreakTimeValue: { fontSize: 13, fontFamily: fonts.bold, color: colors.accent },
-  activeBreakTimeValueOver: { color: colors.error },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginBottom: spacing.sm },
-  activeBreakHero: {
-    borderRadius: borderRadius.md,
-    borderWidth: 1,
-    borderColor: colors.accent + '50',
-    backgroundColor: colors.accent + '12',
-    padding: spacing.md,
-    marginBottom: spacing.sm,
+  teamBreakTimeLabelOver: { color: colors.error },
+  teamBreakTimeValue: {
+    fontSize: 14,
+    fontFamily: fonts.bold,
+    color: colors.accent,
   },
-  activeBreakHeroOver: { borderColor: colors.error + '70', backgroundColor: colors.error + '10' },
-  activeBreakHeroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  activeBreakHeroTitle: { fontSize: 12, color: colors.textSecondary, fontFamily: fonts.medium, textTransform: 'uppercase' },
-  activeBreakHeroName: { fontSize: 18, color: colors.textPrimary, fontFamily: fonts.bold, marginTop: spacing.xs, marginBottom: spacing.sm },
-  activeBreakHeroTimerRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  activeBreakHeroTimer: { fontSize: 22, color: colors.accent, fontFamily: fonts.bold },
-  activeBreakHeroTimerOver: { color: colors.error },
-  activeBreakHeroTimerLabel: { fontSize: 13, color: colors.accent, fontFamily: fonts.medium },
-  activeBreakHeroTimerLabelOver: { color: colors.error },
-  activeBreakHeroOverrun: { fontSize: 12, color: colors.error, marginTop: spacing.xs, fontFamily: fonts.medium },
-  endBreakBtn: {
-    minHeight: 52,
-    borderRadius: borderRadius.full,
-    backgroundColor: colors.accent,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
-  },
-  endBreakBtnText: { fontSize: 16, color: colors.black, fontFamily: fonts.semibold },
-  breakLockCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.accent + '4D',
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.accent + '10',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  breakLockIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.accent + '5A',
-    backgroundColor: colors.accent + '1A',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  breakLockMain: { flex: 1, minWidth: 0 },
-  breakLockTitle: {
-    fontSize: 13,
-    color: colors.textPrimary,
-    fontFamily: fonts.semibold,
-    marginBottom: 2,
-  },
-  breakLockText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    lineHeight: 18,
-  },
-  emptyBreaksCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.surface,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  emptyBreaksIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.background,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyBreaksMain: { flex: 1, minWidth: 0 },
-  emptyBreaksTitle: {
-    fontSize: 13,
-    color: colors.textPrimary,
-    fontFamily: fonts.semibold,
-    marginBottom: 2,
-  },
-  emptyBreaksText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    lineHeight: 18,
-  },
-  breakInfoBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: borderRadius.md,
-    backgroundColor: colors.surface,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.md,
-  },
-  breakInfoText: { fontSize: 13, color: colors.textSecondary, flex: 1 },
-  overrunText: { fontSize: 12, color: colors.error, marginBottom: spacing.sm },
+  teamBreakTimeValueOver: { color: colors.error },
 });

@@ -46,11 +46,27 @@ export function useAuth() {
     try {
       let profile: UserProfile | null = await getProfile(meta.id);
       if (!profile) {
-        profile = await createProfile(meta.id, {
-          name: meta.name,
-          surname: meta.surname,
-          email: meta.email,
-        });
+        try {
+          profile = await createProfile(meta.id, {
+            name: meta.name,
+            surname: meta.surname,
+            email: meta.email,
+          });
+        } catch (createErr: unknown) {
+          const code =
+            typeof createErr === 'object' && createErr !== null && 'code' in createErr
+              ? String((createErr as { code?: string }).code)
+              : '';
+          const msg = createErr instanceof Error ? createErr.message : String(createErr);
+          const isDuplicate =
+            code === '23505' || msg.includes('duplicate') || msg.includes('unique');
+          if (isDuplicate) {
+            profile = await getProfile(meta.id);
+          } else {
+            if (__DEV__) console.error('[useAuth] createProfile failed', createErr);
+            throw createErr;
+          }
+        }
       }
       setUser(profile ?? null);
       if (profile) {
@@ -65,7 +81,8 @@ export function useAuth() {
           }),
         ]).catch(() => {});
       }
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.error('[useAuth] loadProfile failed', e);
       setUser(null);
     }
   }, [setUser]);

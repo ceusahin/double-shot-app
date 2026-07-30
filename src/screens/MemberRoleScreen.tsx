@@ -1,5 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Alert, Pressable } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  Pressable,
+} from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -16,14 +22,17 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../store/authStore';
 import { removeMember, syncTeamMemberRoleWithRbac } from '../services/teams';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { Team } from '../types';
 import type { Member, Role } from '../types/rbac';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'MemberRole'> };
 type Nav = StackNavigationProp<TeamsStackParamList>;
 
 export function MemberRoleScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const navigation = useNavigation<Nav>();
   const { team, member, organizationId: organizationIdParam } = route.params;
   const user = useAuthStore((s) => s.user);
@@ -76,16 +85,16 @@ export function MemberRoleScreen({ route }: Props) {
       queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
       queryClient.invalidateQueries({ queryKey: ['my-teams', member.user_id] });
       setSelectedRoleId(null);
-      Alert.alert('Rol atandı', 'Üyenin yetkileri güncellendi.');
+      themedAlert('Rol atandı', 'Üyenin yetkileri güncellendi.');
     } catch (e) {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'Rol atanamadı.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'Rol atanamadı.');
     } finally {
       setSaving(false);
     }
   };
 
   const handleRemoveRole = (memberRoleId: string) => {
-    Alert.alert('Rolü kaldır', 'Bu rol kaldırılsın mı?', [
+    themedAlert('Rolü kaldır', 'Bu rol kaldırılsın mı?', [
       { text: 'İptal', style: 'cancel' },
       {
         text: 'Kaldır',
@@ -99,7 +108,7 @@ export function MemberRoleScreen({ route }: Props) {
             queryClient.invalidateQueries({ queryKey: ['team-members', team.id] });
             queryClient.invalidateQueries({ queryKey: ['my-teams', member.user_id] });
           } catch (e) {
-            Alert.alert('Hata', e instanceof Error ? e.message : 'Kaldırılamadı.');
+            themedAlert('Hata', e instanceof Error ? e.message : 'Kaldırılamadı.');
           }
         },
       },
@@ -110,7 +119,7 @@ export function MemberRoleScreen({ route }: Props) {
     const displayName = member.user
       ? [member.user.name, member.user.surname].filter(Boolean).join(' ') || (member.user as { email?: string }).email || 'Üye'
       : 'Üye';
-    Alert.alert(
+    themedAlert(
       'Ekipten çıkar',
       `"${displayName}" ekipten çıkarılsın mı? Bu işlem geri alınamaz.`,
       [
@@ -127,7 +136,7 @@ export function MemberRoleScreen({ route }: Props) {
               queryClient.invalidateQueries({ queryKey: ['my-teams', member.user_id] });
               navigation.goBack();
             } catch (e) {
-              Alert.alert('Hata', e instanceof Error ? e.message : 'Üye ekipten çıkarılamadı.');
+              themedAlert('Hata', e instanceof Error ? e.message : 'Üye ekipten çıkarılamadı.');
             }
           },
         },
@@ -146,7 +155,7 @@ export function MemberRoleScreen({ route }: Props) {
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
       showsVerticalScrollIndicator={false}
     >
       <View style={styles.header}>
@@ -275,7 +284,7 @@ export function MemberRoleScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   errorText: { ...typography.body, color: colors.error, padding: spacing.lg },
   header: { marginBottom: spacing.lg },
   memberName: {

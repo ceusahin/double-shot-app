@@ -5,7 +5,6 @@ import {
   StyleSheet,
   Pressable,
   ActivityIndicator,
-  Alert,
   ScrollView,
   RefreshControl,
 } from 'react-native';
@@ -16,6 +15,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Avatar, Card } from '../components';
 import { listPendingJoinRequests, respondToJoinRequest } from '../services/teams';
 import { colors, spacing, typography, borderRadius, fonts } from '../utils/theme';
+import { themedAlert } from '../utils/themedAlert';
 import type { TeamJoinRequest } from '../types';
 import type { MainStackParamList } from '../navigation/MainStack';
 
@@ -77,7 +77,7 @@ export function JoinRequestsScreen() {
       ]);
     },
     onError: (e) => {
-      Alert.alert('Hata', e instanceof Error ? e.message : 'İstek güncellenemedi.');
+      themedAlert('Hata', e instanceof Error ? e.message : 'İstek güncellenemedi.');
     },
   });
 

@@ -20,6 +20,7 @@ import {
   toBusinessQueryReference,
 } from '../utils/businessDay';
 import type { TeamsStackParamList } from '../navigation/TeamsStack';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 type Props = { route: RouteProp<TeamsStackParamList, 'ShiftDetail'> };
 type ShiftTabKey = 'on_shift' | 'off_shift';
@@ -28,11 +29,22 @@ function fmtTime(iso: string): string {
   return new Date(iso).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Örn. 82 → "1 saat 22 dk", 45 → "45 dk" */
+function formatMinutesReadable(totalMin: number): string {
+  const m = Math.max(0, Math.round(totalMin));
+  if (m === 0) return '0 dk';
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  if (h === 0) return `${rem} dk`;
+  if (rem === 0) return `${h} saat`;
+  return `${h} saat ${rem} dk`;
+}
+
 function fmtDurationMinutes(startedAt: string, endedAt: string | null): string {
   const startMs = new Date(startedAt).getTime();
   const endMs = endedAt ? new Date(endedAt).getTime() : Date.now();
   const min = Math.max(0, Math.round((endMs - startMs) / 60000));
-  return `${min} dk`;
+  return formatMinutesReadable(min);
 }
 
 function fmtMinutesSeconds(totalSeconds: number): string {
@@ -54,6 +66,7 @@ function getOverrunLabel(plannedEndAt: string, endedAt: string | null): string |
 }
 
 export function ShiftDetailScreen({ route }: Props) {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const { team } = route.params;
   const user = useAuthStore((s) => s.user);
   const [shiftTab, setShiftTab] = useState<ShiftTabKey>('on_shift');
@@ -174,7 +187,11 @@ export function ShiftDetailScreen({ route }: Props) {
   const activeBreaks = breakLogs.filter((b) => !b.ended_at).length;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.heroCard}>
         <Text style={styles.heroTitle}>Vardiya Detayı</Text>
       </View>
@@ -329,7 +346,9 @@ export function ShiftDetailScreen({ route }: Props) {
                     </View>
                     <View style={styles.pill}>
                       <Ionicons name="cafe-outline" size={12} color={colors.accent} />
-                      <Text style={styles.pillText}>{myBreaks.length} mola · {stats.totalMinutes} dk</Text>
+                      <Text style={styles.pillText}>
+                        {myBreaks.length} mola · {formatMinutesReadable(stats.totalMinutes)}
+                      </Text>
                     </View>
                   </View>
                 </View>
@@ -372,7 +391,7 @@ export function ShiftDetailScreen({ route }: Props) {
                   <View style={styles.detailGrid}>
                     <View style={styles.detailTile}>
                       <Text style={styles.detailLabel}>Toplam mola</Text>
-                      <Text style={styles.detailValue}>{stats.totalMinutes} dk</Text>
+                      <Text style={styles.detailValue}>{formatMinutesReadable(stats.totalMinutes)}</Text>
                     </View>
                     <View style={styles.detailTile}>
                       <Text style={styles.detailLabel}>Aşım adedi</Text>
@@ -410,7 +429,11 @@ export function ShiftDetailScreen({ route }: Props) {
                                 <Text style={styles.breakName}>{b.template?.name ?? 'Mola'}</Text>
                               </View>
                               <View style={styles.breakDurationBadge}>
-                                <Text style={styles.breakDurationText}>{b.template?.duration_minutes ?? '-'} dk</Text>
+                                <Text style={styles.breakDurationText}>
+                                  {b.template?.duration_minutes != null
+                                    ? formatMinutesReadable(b.template.duration_minutes)
+                                    : '—'}
+                                </Text>
                               </View>
                             </View>
                             <Text style={styles.breakTimelineMeta}>
@@ -437,7 +460,7 @@ export function ShiftDetailScreen({ route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl, gap: spacing.sm },
+  content: { padding: spacing.md, paddingBottom: 0, gap: spacing.sm },
   heroCard: {
     paddingTop: spacing.xs,
     paddingBottom: spacing.sm,

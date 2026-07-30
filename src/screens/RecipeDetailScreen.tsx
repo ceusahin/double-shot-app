@@ -5,15 +5,21 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { Card } from '../components';
 import { colors, spacing, typography } from '../utils/theme';
 import { getRecipeDetail } from '../data/recipes';
+import { useMainTabScrollPadding } from '../hooks/useMainTabScrollPadding';
 
 export function RecipeDetailScreen() {
+  const tabScrollBottomPad = useMainTabScrollPadding();
   const route = useRoute<{ params: { id: string } }>();
   const navigation = useNavigation<any>();
   const id = route.params?.id ?? 'espresso';
   const recipe = getRecipeDetail(id);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={[styles.content, { paddingBottom: tabScrollBottomPad }]}
+      showsVerticalScrollIndicator={false}
+    >
       <View style={styles.header}>
         <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="chevron-back" size={26} color={colors.accent} />
@@ -61,7 +67,7 @@ export function RecipeDetailScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bgDark },
-  content: { padding: spacing.md, paddingBottom: spacing.xxl },
+  content: { padding: spacing.md, paddingBottom: 0 },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg },
   backBtn: {
     width: 44, height: 44, borderRadius: 22,
