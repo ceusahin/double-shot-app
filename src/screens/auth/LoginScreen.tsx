@@ -8,8 +8,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Pressable,
+  ActivityIndicator,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useQueryClient } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -19,7 +20,7 @@ import { Button } from '../../components/Button';
 import { Input } from '../../components/Input';
 import { colors, spacing, typography, fonts } from '../../utils/theme';
 import { themedAlert } from '../../utils/themedAlert';
-import { signInWithEmail } from '../../services/auth';
+import { signInWithEmail, signInWithGoogle } from '../../services/auth';
 import { supabase } from '../../services/supabase';
 import { getMyRolesSummary } from '../../services/rbac';
 import type { AuthStackParamList } from '../../navigation/AuthStack';
@@ -47,11 +48,17 @@ function mapLoginError(e: unknown): string {
   ) {
     return 'E-posta veya şifre hatalı. Kayıt olduysanız şifreyi ve e-posta onayını kontrol edin.';
   }
+  if (m.includes('provider is not enabled') || m.includes('unsupported provider')) {
+    return 'Google girişi henüz açık değil. Supabase Dashboard → Authentication → Providers → Google’ı etkinleştirin.';
+  }
+  if (m.includes('redirect') && m.includes('not allowed')) {
+    return 'Redirect URL izin listesinde değil. Supabase → Authentication → URL Configuration’a ekleyin.';
+  }
   return raw || 'Giriş yapılamadı.';
 }
 
 type Props = {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'Login'>;
+  navigation: StackNavigationProp<AuthStackParamList, 'Login'>;
 };
 
 export function LoginScreen({ navigation }: Props) {
@@ -64,6 +71,7 @@ export function LoginScreen({ navigation }: Props) {
   /** Kapalıyken uygulama yeniden açıldığında oturum silinir; çoğu kullanıcı için açık bırakın. */
   const [keepSignedIn, setKeepSignedIn] = useState(true);
   const [subtitleText, setSubtitleText] = useState(DEFAULT_LOGIN_SLOGAN);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -110,42 +118,82 @@ export function LoginScreen({ navigation }: Props) {
       }
 
       await signInWithEmail(emailTrim, password);
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const uid = session?.user?.id;
-      if (session?.user) {
-        const meta = session.user.user_metadata ?? {};
-        const fullName = typeof meta.name === 'string' ? meta.name.trim() : '';
-        const firstName = fullName ? fullName.split(/\s+/)[0] : '';
-        const greetingName =
-          firstName ||
-          (session.user.email?.split('@')[0]?.trim() ?? '') ||
-          tentativeGreeting;
-        try {
-          await AsyncStorage.setItem(
-            LOGIN_SESSION_PREFS_KEY,
-            JSON.stringify({
-              rememberMe: keepSignedIn,
-              greetingName: greetingName || 'Merhaba',
-            } satisfies LoginSessionPrefs)
-          );
-        } catch {
-          /* ignore */
-        }
-      }
-      if (uid) {
-        await queryClient.prefetchQuery({
-          queryKey: ['my-roles', uid],
-          queryFn: () => getMyRolesSummary(uid),
-        });
-      }
+      await persistGreetingFromSession(tentativeGreeting);
     } catch (e: unknown) {
       const message = mapLoginError(e);
       setError(message);
       themedAlert('Giriş yapılamadı', message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const persistGreetingFromSession = async (tentativeGreeting: string) => {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const uid = session?.user?.id;
+    if (session?.user) {
+      const meta = session.user.user_metadata ?? {};
+      const fullName =
+        (typeof meta.full_name === 'string' && meta.full_name.trim()) ||
+        (typeof meta.name === 'string' && meta.name.trim()) ||
+        '';
+      const given =
+        typeof meta.given_name === 'string' ? meta.given_name.trim() : '';
+      const firstName = given || (fullName ? fullName.split(/\s+/)[0] : '');
+      const greetingName =
+        firstName ||
+        (session.user.email?.split('@')[0]?.trim() ?? '') ||
+        tentativeGreeting;
+      try {
+        await AsyncStorage.setItem(
+          LOGIN_SESSION_PREFS_KEY,
+          JSON.stringify({
+            rememberMe: keepSignedIn,
+            greetingName: greetingName || 'Merhaba',
+          } satisfies LoginSessionPrefs)
+        );
+      } catch {
+        /* ignore */
+      }
+    }
+    if (uid) {
+      await queryClient.prefetchQuery({
+        queryKey: ['my-roles', uid],
+        queryFn: () => getMyRolesSummary(uid),
+      });
+    }
+  };
+
+  const handleGoogleLogin = async () => {
+    setError('');
+    setGoogleLoading(true);
+    try {
+      try {
+        await AsyncStorage.setItem(
+          LOGIN_SESSION_PREFS_KEY,
+          JSON.stringify({
+            rememberMe: keepSignedIn,
+            greetingName: 'Merhaba',
+          } satisfies LoginSessionPrefs)
+        );
+      } catch {
+        /* ignore */
+      }
+
+      const result = await signInWithGoogle();
+      if (result.cancelled) {
+        themedAlert('Google girişi', 'Giriş iptal edildi.');
+        return;
+      }
+      await persistGreetingFromSession('Merhaba');
+    } catch (e: unknown) {
+      const message = mapLoginError(e);
+      setError(message);
+      themedAlert('Google ile giriş yapılamadı', message);
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -228,6 +276,7 @@ export function LoginScreen({ navigation }: Props) {
               title="Giriş yap"
               onPress={handleLogin}
               loading={loading}
+              disabled={googleLoading}
               fullWidth
               style={styles.primaryBtn}
             />
@@ -235,13 +284,25 @@ export function LoginScreen({ navigation }: Props) {
             <AuthDivider />
 
             <Pressable
-              onPress={() => {}}
-              style={({ pressed }) => [styles.googleBtn, pressed && styles.googleBtnPressed]}
+              onPress={handleGoogleLogin}
+              disabled={googleLoading || loading}
+              style={({ pressed }) => [
+                styles.googleBtn,
+                pressed && !googleLoading && styles.googleBtnPressed,
+                (googleLoading || loading) && styles.googleBtnDisabled,
+              ]}
               accessibilityRole="button"
               accessibilityLabel="Google ile giriş"
+              accessibilityState={{ busy: googleLoading, disabled: googleLoading || loading }}
             >
-              <Ionicons name="logo-google" size={20} color={colors.textPrimary} />
-              <Text style={styles.googleBtnText}>Google ile devam et</Text>
+              {googleLoading ? (
+                <ActivityIndicator color={colors.accent} />
+              ) : (
+                <>
+                  <Ionicons name="logo-google" size={20} color={colors.textPrimary} />
+                  <Text style={styles.googleBtnText}>Google ile devam et</Text>
+                </>
+              )}
             </Pressable>
           </AuthFormCard>
 
@@ -373,6 +434,9 @@ const styles = StyleSheet.create({
   },
   googleBtnPressed: {
     backgroundColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  googleBtnDisabled: {
+    opacity: 0.6,
   },
   googleBtnText: {
     ...typography.body,

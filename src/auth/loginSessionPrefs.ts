@@ -29,7 +29,8 @@ export async function discardPersistedSessionIfRememberMeOff(
   if (!session) return null;
   const prefs = await readLoginSessionPrefs();
   if (prefs?.rememberMe === false) {
-    await supabase.auth.signOut();
+    // Ağda takılan global signOut boot'u kilitlemesin; sadece yerel oturumu temizle.
+    await supabase.auth.signOut({ scope: 'local' });
     return null;
   }
   return session;

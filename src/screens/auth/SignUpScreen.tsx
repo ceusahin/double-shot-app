@@ -9,7 +9,7 @@ import {
   Platform,
   Pressable,
 } from 'react-native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { StackNavigationProp } from '@react-navigation/stack';
 import { useQueryClient } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -28,7 +28,7 @@ import {
 } from './AuthChrome';
 
 type Props = {
-  navigation: NativeStackNavigationProp<AuthStackParamList, 'SignUp'>;
+  navigation: StackNavigationProp<AuthStackParamList, 'SignUp'>;
 };
 
 export function SignUpScreen({ navigation }: Props) {
@@ -74,7 +74,7 @@ export function SignUpScreen({ navigation }: Props) {
           themedAlert(
             'E-postanızı onaylayın',
             'Kayıt başarılı. Giriş yapabilmek için e-posta adresinize gelen onay linkine tıklayın.',
-            [{ text: 'Tamam', onPress: () => navigation.navigate('Login') }]
+            [{ text: 'Tamam', onPress: () => navigation.goBack() }]
           );
         }
       }
@@ -83,7 +83,7 @@ export function SignUpScreen({ navigation }: Props) {
       let message = err?.message ?? 'Kayıt oluşturulamadı.';
       if (message.includes('already registered') || message.includes('already exists')) {
         message = 'Bu e-posta adresi zaten kayıtlı. Giriş yapmayı deneyin.';
-        navigation.navigate('Login');
+        navigation.goBack();
       } else if (message.includes('rate limit') || message.includes('email')) {
         message =
           'Çok fazla deneme. Lütfen bir süre sonra tekrar deneyin veya Supabase Dashboard\'da e-posta onayını kapatın.';
@@ -105,24 +105,13 @@ export function SignUpScreen({ navigation }: Props) {
           contentContainerStyle={[
             styles.scroll,
             {
-              paddingTop: insets.top + 4,
+              paddingTop: insets.top + 8,
               paddingBottom: insets.bottom + 28,
             },
           ]}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          <Pressable
-            onPress={() => navigation.navigate('Login')}
-            style={({ pressed }) => [styles.backRow, pressed && styles.backPressed]}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Girişe dön"
-          >
-            <Ionicons name="chevron-back" size={22} color={colors.accent} />
-            <Text style={styles.backText}>Girişe dön</Text>
-          </Pressable>
-
           <View style={styles.hero}>
             <Image
               source={require('../../../public/logo.png')}
@@ -134,7 +123,6 @@ export function SignUpScreen({ navigation }: Props) {
           </View>
 
           <AuthFormCard>
-            <Text style={styles.sectionLabel}>Profil</Text>
             <Input
               label="Ad"
               labelStyle={authFieldLabelStyle}
@@ -197,7 +185,7 @@ export function SignUpScreen({ navigation }: Props) {
 
           <View style={styles.footer}>
             <Text style={styles.footerMuted}>Zaten hesabınız var mı? </Text>
-            <Pressable onPress={() => navigation.navigate('Login')} hitSlop={12}>
+            <Pressable onPress={() => navigation.goBack()} hitSlop={12}>
               <Text style={styles.footerLink}>Giriş yapın</Text>
             </Pressable>
           </View>
@@ -212,21 +200,7 @@ const styles = StyleSheet.create({
   scroll: {
     flexGrow: 1,
     paddingHorizontal: spacing.lg + 2,
-  },
-  backRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    alignSelf: 'flex-start',
-    marginBottom: spacing.md,
-    paddingVertical: spacing.xs,
-  },
-  backPressed: { opacity: 0.75 },
-  backText: {
-    ...typography.body,
-    color: colors.accent,
-    fontFamily: fonts.semibold,
-    fontSize: 16,
+    justifyContent: 'center',
   },
   hero: {
     alignItems: 'center',
@@ -250,16 +224,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     paddingHorizontal: spacing.lg,
-  },
-  sectionLabel: {
-    ...typography.small,
-    color: colors.accent,
-    fontFamily: fonts.semibold,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-    fontSize: 10,
-    marginBottom: spacing.sm + 2,
-    opacity: 0.9,
   },
   errorBox: {
     flexDirection: 'row',

@@ -1,3 +1,4 @@
+import './src/polyfills/crypto';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { registerRootComponent } from 'expo';
 

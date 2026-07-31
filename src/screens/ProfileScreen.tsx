@@ -27,16 +27,16 @@ import {
   updateAuthEmail,
   updatePassword,
 } from '../services/auth';
-import { getMyTeams } from '../services/teams';
 import { getMyRolesSummary } from '../services/rbac';
 import { isPlatformStaff, sumQuotaBalances } from '../services/platformAdmin';
+import { useDefaultTeam } from '../hooks/useDefaultTeam';
 import { colors, spacing, typography, fonts, borderRadius } from '../utils/theme';
 import { themedAlert } from '../utils/themedAlert';
 
 const MIN_PASSWORD_LENGTH = 6;
 const PROFILE_PHOTO_PICKER_QUALITY = 0.72;
 
-type SettingsView = 'main' | 'account-menu' | 'personal' | 'email' | 'password';
+type SettingsView = 'main' | 'account-menu' | 'app-settings' | 'personal' | 'email' | 'password';
 
 export function ProfileScreen() {
   const navigation = useNavigation();
@@ -47,6 +47,7 @@ export function ProfileScreen() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsView, setSettingsView] = useState<SettingsView>('main');
   const [photoLoading, setPhotoLoading] = useState(false);
+  const [defaultTeamSaving, setDefaultTeamSaving] = useState(false);
 
   const [name, setName] = useState('');
   const [surname, setSurname] = useState('');
@@ -62,6 +63,13 @@ export function ProfileScreen() {
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
   const [passwordSaving, setPasswordSaving] = useState(false);
   const [passwordError, setPasswordError] = useState('');
+
+  const {
+    teams: defaultTeams,
+    defaultTeamId,
+    setDefaultTeamId,
+    isLoading: defaultTeamLoading,
+  } = useDefaultTeam();
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -83,12 +91,7 @@ export function ProfileScreen() {
   });
   const roleSummaries = roleData ?? [];
   const rolesStatLoading = !!user?.id && rolesPending && roleSummaries.length === 0;
-
-  const { data: myTeams = [] } = useQuery({
-    queryKey: ['my-teams', user?.id],
-    queryFn: () => getMyTeams(user!.id),
-    enabled: !!user?.id,
-  });
+  const myTeams = defaultTeams;
 
   useEffect(() => {
     if (showSettingsModal && user) {
@@ -185,11 +188,13 @@ export function ProfileScreen() {
       ? 'Ayarlar'
       : settingsView === 'account-menu'
         ? 'Hesap Ayarları'
-        : settingsView === 'personal'
-          ? 'Kişisel bilgileri güncelle'
-          : settingsView === 'email'
-            ? 'Mail güncelle'
-            : 'Şifre değiştir';
+        : settingsView === 'app-settings'
+          ? 'Uygulama ayarları'
+          : settingsView === 'personal'
+            ? 'Kişisel bilgileri güncelle'
+            : settingsView === 'email'
+              ? 'Mail güncelle'
+              : 'Şifre değiştir';
 
   const showBack = settingsView !== 'main';
 
@@ -225,9 +230,22 @@ export function ProfileScreen() {
   };
 
   const goBackInModal = () => {
-    if (settingsView === 'account-menu') setSettingsView('main');
-    else if (settingsView === 'personal' || settingsView === 'email' || settingsView === 'password') {
+    if (settingsView === 'account-menu' || settingsView === 'app-settings') {
+      setSettingsView('main');
+    } else if (settingsView === 'personal' || settingsView === 'email' || settingsView === 'password') {
       setSettingsView('account-menu');
+    }
+  };
+
+  const handleSelectDefaultTeam = async (teamId: string) => {
+    if (teamId === defaultTeamId || defaultTeamSaving) return;
+    setDefaultTeamSaving(true);
+    try {
+      await setDefaultTeamId(teamId);
+    } catch (e) {
+      themedAlert('Hata', e instanceof Error ? e.message : 'Varsayılan ekip kaydedilemedi.');
+    } finally {
+      setDefaultTeamSaving(false);
     }
   };
 
@@ -347,6 +365,13 @@ export function ProfileScreen() {
                   style={styles.settingsMainBtn}
                 />
                 <Button
+                  title="Uygulama ayarları"
+                  onPress={() => setSettingsView('app-settings')}
+                  variant="outline"
+                  fullWidth
+                  style={styles.settingsMainBtn}
+                />
+                <Button
                   title="Çıkış"
                   onPress={() => {
                     closeModal();
@@ -358,6 +383,73 @@ export function ProfileScreen() {
                   textStyle={styles.logoutText}
                 />
               </View>
+            )}
+
+            {settingsView === 'app-settings' && (
+              <ScrollView
+                style={styles.appSettingsScroll}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <Text style={styles.appSettingsSectionLabel}>Varsayılan ekip</Text>
+                <Text style={styles.appSettingsHint}>
+                  Ana sayfada gösterilecek ekibi seçin. Tek ekibe üyeyseniz otomatik olarak o ekip
+                  kullanılır.
+                </Text>
+                {defaultTeamLoading ? (
+                  <ActivityIndicator color={colors.accent} style={styles.appSettingsLoading} />
+                ) : myTeams.length === 0 ? (
+                  <Text style={styles.appSettingsEmpty}>Henüz bir ekibe üye değilsiniz.</Text>
+                ) : (
+                  <View style={styles.teamPickerList}>
+                    {myTeams.map((team) => {
+                      const selected = team.id === defaultTeamId;
+                      const locked = myTeams.length === 1;
+                      return (
+                        <Pressable
+                          key={team.id}
+                          onPress={() => handleSelectDefaultTeam(team.id)}
+                          disabled={locked || defaultTeamSaving}
+                          style={({ pressed }) => [
+                            styles.teamPickerRow,
+                            selected && styles.teamPickerRowSelected,
+                            pressed && !locked && styles.teamPickerRowPressed,
+                          ]}
+                        >
+                          <View style={styles.teamPickerIconWrap}>
+                            <Ionicons
+                              name="people-outline"
+                              size={18}
+                              color={selected ? colors.accent : colors.textMuted}
+                            />
+                          </View>
+                          <View style={styles.teamPickerTextCol}>
+                            <Text
+                              style={[
+                                styles.teamPickerName,
+                                selected && styles.teamPickerNameSelected,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {team.name}
+                            </Text>
+                            {locked ? (
+                              <Text style={styles.teamPickerMeta}>Tek ekip · otomatik seçili</Text>
+                            ) : selected ? (
+                              <Text style={styles.teamPickerMeta}>Ana sayfada gösteriliyor</Text>
+                            ) : null}
+                          </View>
+                          {selected ? (
+                            <Ionicons name="checkmark-circle" size={22} color={colors.accent} />
+                          ) : (
+                            <View style={styles.teamPickerRadio} />
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
+              </ScrollView>
             )}
 
             {settingsView === 'account-menu' && (
@@ -679,4 +771,85 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
   },
   logoutText: { color: '#ff8a8a' },
+  appSettingsScroll: {
+    maxHeight: 420,
+  },
+  appSettingsSectionLabel: {
+    fontSize: 11,
+    fontFamily: fonts.semibold,
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+    marginBottom: spacing.xs,
+  },
+  appSettingsHint: {
+    ...typography.small,
+    color: colors.textSecondary,
+    lineHeight: 20,
+    marginBottom: spacing.md,
+  },
+  appSettingsLoading: {
+    marginVertical: spacing.lg,
+  },
+  appSettingsEmpty: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  teamPickerList: {
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  teamPickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    borderRadius: borderRadius.md,
+    borderWidth: 1,
+    borderColor: colors.glassBorder,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+  },
+  teamPickerRowSelected: {
+    borderColor: 'rgba(212, 175, 55, 0.45)',
+    backgroundColor: 'rgba(212, 175, 55, 0.08)',
+  },
+  teamPickerRowPressed: {
+    opacity: 0.88,
+  },
+  teamPickerIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: borderRadius.full,
+    backgroundColor: 'rgba(212, 175, 55, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(212, 175, 55, 0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  teamPickerTextCol: {
+    flex: 1,
+    minWidth: 0,
+  },
+  teamPickerName: {
+    fontSize: 16,
+    fontFamily: fonts.semibold,
+    color: colors.textPrimary,
+  },
+  teamPickerNameSelected: {
+    color: colors.textPrimary,
+  },
+  teamPickerMeta: {
+    ...typography.small,
+    color: colors.accent,
+    marginTop: 2,
+  },
+  teamPickerRadio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.2)',
+  },
 });

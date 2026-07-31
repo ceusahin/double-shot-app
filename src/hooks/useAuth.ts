@@ -9,6 +9,25 @@ import { useAuthStore } from '../store/authStore';
 import type { UserProfile } from '../types';
 import type { Session } from '@supabase/supabase-js';
 
+/** getSession / profil ağda takılırsa login asla gelmesin diye. */
+const AUTH_BOOT_TIMEOUT_MS = 10_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`${label} timeout`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 function mapAuthUserToProfile(session: Session): {
   id: string;
   name: string;
@@ -18,10 +37,21 @@ function mapAuthUserToProfile(session: Session): {
   const user = session?.user;
   if (!user?.email) return null;
   const meta = user.user_metadata ?? {};
+  const given = typeof meta.given_name === 'string' ? meta.given_name.trim() : '';
+  const family = typeof meta.family_name === 'string' ? meta.family_name.trim() : '';
+  const fullName =
+    (typeof meta.full_name === 'string' && meta.full_name.trim()) ||
+    (typeof meta.name === 'string' && meta.name.trim()) ||
+    '';
+  const parts = fullName ? fullName.split(/\s+/).filter(Boolean) : [];
   return {
     id: user.id,
-    name: meta.name ?? meta.full_name?.split(' ')[0] ?? '',
-    surname: meta.surname ?? meta.full_name?.split(' ').slice(1).join(' ') ?? '',
+    name: given || parts[0] || '',
+    surname:
+      family ||
+      (typeof meta.surname === 'string' ? meta.surname.trim() : '') ||
+      parts.slice(1).join(' ') ||
+      '',
     email: user.email,
   };
 }
@@ -88,43 +118,63 @@ export function useAuth() {
   }, [setUser]);
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    supabase.auth
-      .getSession()
-      .then(async ({ data, error }) => {
+
+    const finishLoading = () => {
+      if (!cancelled) setLoading(false);
+    };
+
+    (async () => {
+      try {
+        const { data, error } = await withTimeout(
+          supabase.auth.getSession(),
+          AUTH_BOOT_TIMEOUT_MS,
+          'getSession'
+        );
+
         if (error) {
           const msg = (error.message ?? '').toLowerCase();
           if (msg.includes('invalid refresh token') || msg.includes('refresh token not found')) {
             await clearCorruptedLocalSession();
           }
           setUser(null);
-          setLoading(false);
           return;
         }
+
         let session = data?.session ?? null;
         session = await discardPersistedSessionIfRememberMeOff(session);
+
         if (session) {
-          await loadProfile(session);
+          try {
+            await withTimeout(loadProfile(session), AUTH_BOOT_TIMEOUT_MS, 'loadProfile');
+          } catch (profileErr) {
+            if (__DEV__) console.warn('[useAuth] loadProfile timed out or failed', profileErr);
+            setUser(null);
+          }
         } else {
           setUser(null);
         }
-        setLoading(false);
-      })
-      .catch(async (e) => {
+      } catch (e) {
         const msg = e instanceof Error ? e.message.toLowerCase() : '';
         if (msg.includes('invalid refresh token') || msg.includes('refresh token not found')) {
           await clearCorruptedLocalSession();
+        } else if (msg.includes('timeout')) {
+          if (__DEV__) console.warn('[useAuth] auth boot timed out; showing login');
+          await clearCorruptedLocalSession();
         }
         setUser(null);
-        setLoading(false);
-      });
+      } finally {
+        finishLoading();
+      }
+    })();
 
-    const { data: authData } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: authData } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'INITIAL_SESSION') {
         return;
       }
       if (event === 'SIGNED_IN' && session) {
-        await loadProfile(session);
+        void loadProfile(session);
         return;
       }
       if (event === 'SIGNED_OUT') {
@@ -132,12 +182,15 @@ export function useAuth() {
         return;
       }
       if (event === 'TOKEN_REFRESHED' && session) {
-        await loadProfile(session);
+        void loadProfile(session);
       }
     });
     const subscription = authData?.subscription;
 
-    return () => subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
   }, [clearCorruptedLocalSession, loadProfile, setUser, setLoading]);
 
   return { user, isLoading, isAuthenticated: !!user };

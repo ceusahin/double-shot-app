@@ -179,12 +179,197 @@ export async function signOut() {
   if (error) throw error;
 }
 
+function parseAuthCallbackUrl(url: string): {
+  access_token?: string;
+  refresh_token?: string;
+  code?: string;
+  error?: string;
+  error_description?: string;
+} {
+  const hashIndex = url.indexOf('#');
+  const queryIndex = url.indexOf('?');
+  const hash =
+    hashIndex >= 0 ? url.slice(hashIndex + 1) : '';
+  const query =
+    queryIndex >= 0
+      ? url.slice(queryIndex + 1, hashIndex >= 0 ? hashIndex : undefined)
+      : '';
+
+  const fromSearch = new URLSearchParams(query);
+  const fromHash = new URLSearchParams(hash);
+  const get = (key: string) =>
+    fromSearch.get(key) || fromHash.get(key) || undefined;
+
+  return {
+    access_token: get('access_token') ?? undefined,
+    refresh_token: get('refresh_token') ?? undefined,
+    code: get('code') ?? undefined,
+    error: get('error') ?? undefined,
+    error_description: get('error_description') ?? undefined,
+  };
+}
+
+function isAuthCallbackUrl(url: string): boolean {
+  const params = parseAuthCallbackUrl(url);
+  return Boolean(
+    params.code ||
+      params.access_token ||
+      params.error ||
+      url.includes('auth/callback')
+  );
+}
+
+async function createSessionFromAuthUrl(url: string) {
+  if (__DEV__) {
+    console.log('[Google OAuth] callback url =', url);
+  }
+
+  const params = parseAuthCallbackUrl(url);
+  if (params.error) {
+    throw new Error(params.error_description || params.error);
+  }
+
+  if (params.access_token && params.refresh_token) {
+    const { data, error } = await supabase.auth.setSession({
+      access_token: params.access_token,
+      refresh_token: params.refresh_token,
+    });
+    if (error) throw error;
+    return data;
+  }
+
+  if (params.code) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(params.code);
+    if (error) throw error;
+    return data;
+  }
+
+  throw new Error(
+    'Google oturumu alınamadı. Supabase Redirect URLs listesine Metro’daki redirectTo değerini birebir ekle.'
+  );
+}
+
+function extractRedirectToFromOAuthUrl(oauthUrl: string): string | null {
+  try {
+    return new URL(oauthUrl).searchParams.get('redirect_to');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Prod/APK: ekibio://auth/callback
+ * Expo Go: Google OAuth desteklenmiyor (Supabase redirect → "requested path is invalid").
+ */
 export async function signInWithGoogle() {
-  // Expo için Google OAuth: expo-auth-session ile yapılır.
-  // Supabase dashboard'da Google provider açılıp redirect URL ayarlanmalı.
+  const WebBrowser = await import('expo-web-browser');
+  const Linking = await import('expo-linking');
+  const Constants = await import('expo-constants');
+
+  const isExpoGo = Constants.default.appOwnership === 'expo';
+  if (isExpoGo) {
+    throw new Error(
+      'Google ile giriş Expo Go’da çalışmıyor. Preview APK ile dene:\nnpx eas-cli build -p android --profile preview'
+    );
+  }
+
+  WebBrowser.maybeCompleteAuthSession();
+
+  const redirectTo = Linking.createURL('auth/callback') || 'ekibio://auth/callback';
+
+  if (__DEV__) {
+    console.log('[Google OAuth] redirectTo =', redirectTo);
+  }
+
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
+    options: {
+      redirectTo,
+      skipBrowserRedirect: true,
+      queryParams: {
+        prompt: 'select_account',
+      },
+    },
   });
   if (error) throw error;
-  return data;
+  if (!data.url) throw new Error('Google giriş bağlantısı oluşturulamadı.');
+
+  if (__DEV__) {
+    console.log(
+      '[Google OAuth] supabase redirect_to =',
+      extractRedirectToFromOAuthUrl(data.url)
+    );
+  }
+
+  let subscription: { remove: () => void } | undefined;
+  let maxWait: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    const callbackUrl = await new Promise<string | null>((resolve) => {
+      let settled = false;
+      const finish = (url: string | null) => {
+        if (settled) return;
+        settled = true;
+        if (maxWait) clearTimeout(maxWait);
+        subscription?.remove();
+        void WebBrowser.dismissBrowser().catch(() => {});
+        resolve(url);
+      };
+
+      subscription = Linking.addEventListener('url', ({ url }) => {
+        if (__DEV__) console.log('[Google OAuth] linking event =', url);
+        if (isAuthCallbackUrl(url)) finish(url);
+      });
+
+      maxWait = setTimeout(() => finish(null), 20_000);
+
+      void WebBrowser.openAuthSessionAsync(data.url!, redirectTo)
+        .then(async (result) => {
+          if (__DEV__) {
+            console.log(
+              '[Google OAuth] browser result =',
+              result.type,
+              'url' in result ? result.url : ''
+            );
+          }
+          if (result.type === 'success' && 'url' in result && result.url) {
+            finish(result.url);
+            return;
+          }
+
+          await new Promise((r) => setTimeout(r, 800));
+          if (settled) return;
+
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session) {
+            finish('session-already-set');
+            return;
+          }
+          finish(null);
+        })
+        .catch((e) => {
+          if (__DEV__) console.warn('[Google OAuth] browser error', e);
+          finish(null);
+        });
+    });
+
+    if (callbackUrl === 'session-already-set') {
+      return { cancelled: false as const };
+    }
+
+    if (!callbackUrl) {
+      throw new Error(
+        `Google girişi tamamlanamadı.\nSupabase Redirect URLs’de ekibio://** ve ekibio://auth/callback olduğundan emin ol.`
+      );
+    }
+
+    await createSessionFromAuthUrl(callbackUrl);
+    return { cancelled: false as const };
+  } finally {
+    if (maxWait) clearTimeout(maxWait);
+    subscription?.remove();
+  }
 }
+
